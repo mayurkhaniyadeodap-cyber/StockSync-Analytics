@@ -1,0 +1,20 @@
+# Normalise line endings so a Windows dev and Linux CI produce identical diffs.
+* text=auto eol=lf
+
+# Windows-native: must keep CRLF to run correctly.
+*.ps1 text eol=crlf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Binary — never touch, never diff.
+*.png binary
+*.jpg binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.pdf binary
+*.xlsx binary
+*.xls binary
+
+# Generated: collapse in PR diffs.
+package-lock.json linguist-generated=true -diff

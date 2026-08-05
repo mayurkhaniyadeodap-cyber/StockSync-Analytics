@@ -1,0 +1,2403 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Strata — Inventory &amp; Shopify Sales Analytics</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   STRATA — design tokens (§1.3)
+   ============================================================ */
+:root{
+  --ink:#23282B; --slate:#3A5763; --clay:#B5613F; --moss:#4C7A5B;
+  --amber:#B9862E; --rust:#A23B3B; --fog:#F5F4F2; --paper:#FFFFFF; --line:#DDD9D3;
+  --ink-60:#23282B99; --ink-45:#23282B73;
+  --tint:#3A576314; --tint-strong:#3A57631f; --sub:#00000006;
+  --shadow:0 1px 2px #23282B0d, 0 8px 24px #23282B0f;
+  --r:6px; --hdr-h:64px; --side-w:240px; --side-c:72px;
+  --f-sans:"Figtree",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+  --t:170ms cubic-bezier(.4,0,.2,1);
+}
+[data-theme="dark"]{
+  --ink:#E9ECEC; --slate:#7FA2AF; --clay:#D98466; --moss:#7FBE93;
+  --amber:#DDAE5C; --rust:#DA6C6C; --fog:#17191A; --paper:#202324; --line:#35383A;
+  --ink-60:#E9ECEC99; --ink-45:#E9ECEC73;
+  --tint:#7FA2AF1a; --tint-strong:#7FA2AF26; --sub:#ffffff05;
+  --shadow:0 1px 2px #0006, 0 12px 32px #0009;
+}
+*,*::before,*::after{box-sizing:border-box}
+html,body{height:100%}
+body{
+  margin:0; background:var(--fog); color:var(--ink);
+  font-family:var(--f-sans); font-size:14px; line-height:1.5;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:none;padding:0}
+a{color:var(--slate);text-decoration:none}
+h1,h2,h3,h4{margin:0;font-weight:600;letter-spacing:-.01em}
+:focus-visible{outline:2px solid var(--slate);outline-offset:2px;border-radius:3px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:20px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+
+/* numerals: tabular mono everywhere (§1.3) */
+.num,.tbl td.n,.kpi-val,.stat-val{font-family:var(--f-mono);font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.eyebrow{font-size:10.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-45)}
+
+/* ============================================================
+   LOGIN (§6)
+   ============================================================ */
+#login{position:fixed;inset:0;z-index:200;background:var(--fog);display:grid;place-items:center;padding:24px;transition:opacity 180ms ease}
+#login.gone{opacity:0;pointer-events:none}
+.login-card{width:100%;max-width:392px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.login-strata{height:6px;display:flex}
+.login-strata i{flex:1}
+.login-bd{padding:32px 32px 28px}
+.login-mark{display:flex;align-items:center;gap:10px;margin-bottom:4px}
+.login-sub{color:var(--ink-60);font-size:13px;margin:0 0 24px}
+.login-foot{border-top:1px solid var(--line);background:var(--sub);padding:12px 32px;font-size:12px;color:var(--ink-45);display:flex;justify-content:space-between;align-items:center}
+.banner{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;border-radius:var(--r);font-size:13px;margin-bottom:16px}
+.banner.err{background:color-mix(in srgb,var(--rust) 10%,transparent);color:var(--rust);border:1px solid color-mix(in srgb,var(--rust) 30%,transparent)}
+
+/* ============================================================
+   APP FRAME (§2)
+   ============================================================ */
+.app{display:none;height:100vh;height:100dvh;flex-direction:column}
+.app.on{display:flex}
+
+/* header (§3) */
+.hdr{height:var(--hdr-h);flex:0 0 auto;display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--paper);border-bottom:1px solid var(--line);position:relative;z-index:60}
+.mark{display:flex;align-items:center;gap:9px;flex:0 0 auto}
+.mark b{font-size:16px;font-weight:700;letter-spacing:.02em}
+.mark small{font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-45);display:block;margin-top:-3px}
+.search{flex:1;max-width:460px;position:relative}
+.search input{width:100%;height:36px;padding:0 12px 0 34px;border:1px solid var(--line);background:var(--fog);border-radius:var(--r);transition:border-color var(--t),background var(--t)}
+.search input:focus{outline:none;border-color:var(--slate);box-shadow:inset 0 0 0 1px var(--slate);background:var(--paper)}
+.search svg{position:absolute;left:10px;top:10px;color:var(--ink-45)}
+.hdr-r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.icon-btn{width:34px;height:34px;border-radius:var(--r);display:grid;place-items:center;color:var(--ink-60);position:relative;transition:background var(--t),color var(--t)}
+.icon-btn:hover{background:var(--tint);color:var(--ink)}
+.icon-btn .dotbadge{position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;background:var(--clay);border:1.5px solid var(--paper)}
+.syncpill{display:flex;align-items:center;gap:7px;height:32px;padding:0 11px;border:1px solid var(--line);border-radius:100px;font-size:12.5px;font-weight:500;transition:background var(--t)}
+.syncpill:hover{background:var(--tint)}
+.avatar{width:28px;height:28px;border-radius:50%;background:var(--slate);color:#fff;display:grid;place-items:center;font-size:11.5px;font-weight:600;font-family:var(--f-mono)}
+[data-theme="dark"] .avatar{color:#17191A}
+.usermenu-btn{display:flex;align-items:center;gap:7px;padding:3px 8px 3px 3px;border-radius:100px;border:1px solid transparent;transition:border-color var(--t)}
+.usermenu-btn:hover{border-color:var(--line)}
+.usermenu-btn span{font-size:13px;font-weight:500}
+
+/* sidebar (§4) */
+.body{flex:1;display:flex;min-height:0}
+.side{width:var(--side-w);flex:0 0 auto;background:var(--paper);border-right:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden;transition:width var(--t)}
+.side-nav{flex:1;overflow-y:auto;padding:12px 10px 8px}
+.side-grp{padding:14px 12px 5px}
+.nav{display:flex;align-items:center;gap:10px;height:36px;padding:0 10px;border-radius:var(--r);color:var(--ink-60);font-size:13.5px;font-weight:500;width:100%;position:relative;margin-bottom:1px;transition:background var(--t),color var(--t)}
+.nav svg{flex:0 0 18px}
+.nav:hover{background:var(--tint);color:var(--ink)}
+.nav.on{background:var(--tint-strong);color:var(--ink);font-weight:600}
+.nav.on::before{content:"";position:absolute;left:-10px;top:6px;bottom:6px;width:3px;background:var(--slate);border-radius:0 2px 2px 0}
+.nav .lbl{flex:1;text-align:left;white-space:nowrap;overflow:hidden}
+.nav .cnt{font-family:var(--f-mono);font-size:11px;color:var(--ink-45)}
+.nav .alert{width:6px;height:6px;border-radius:50%;background:var(--rust);flex:0 0 6px}
+.side-foot{border-top:1px solid var(--line);padding:8px 10px;background:var(--sub)}
+.side.mini{width:var(--side-c)}
+.side.mini .lbl,.side.mini .cnt,.side.mini .side-grp{display:none}
+.side.mini .nav{justify-content:center;padding:0}
+.side.mini .nav .alert{position:absolute;top:7px;right:14px}
+.side.mini .side-nav{padding-left:10px;padding-right:10px}
+
+/* main + page template (§2.2) */
+.main{flex:1;min-width:0;overflow-y:auto;scroll-behavior:smooth}
+.page{display:none}
+.page.on{display:block;animation:fade 200ms ease}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.wrap{max-width:1440px;margin:0 auto;padding:0 28px 56px}
+.page-head{display:flex;align-items:flex-end;gap:16px;flex-wrap:wrap;padding:26px 0 18px}
+.page-head h1{font-size:23px}
+.page-head .sub{color:var(--ink-60);font-size:13px;margin-top:3px;display:flex;align-items:center;gap:7px}
+.page-head .acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:12px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);background:var(--sub);margin-bottom:22px;padding-left:14px;padding-right:14px;border-radius:var(--r)}
+.spacer{flex:1}
+
+/* ============================================================
+   COMPONENTS (§5)
+   ============================================================ */
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;height:36px;padding:0 14px;border-radius:var(--r);font-size:13.5px;font-weight:600;border:1px solid var(--line);background:var(--paper);color:var(--ink);white-space:nowrap;transition:background var(--t),border-color var(--t),opacity var(--t)}
+.btn:hover{background:var(--tint)}
+.btn[disabled]{opacity:.45;pointer-events:none}
+.btn.pri{background:var(--slate);border-color:var(--slate);color:#fff}
+[data-theme="dark"] .btn.pri{color:#141617}
+.btn.pri:hover{filter:brightness(.93)}
+.btn.cta{background:var(--clay);border-color:var(--clay);color:#fff}
+[data-theme="dark"] .btn.cta{color:#141617}
+.btn.cta:hover{filter:brightness(.93)}
+.btn.sec{background:transparent;border-color:var(--slate);color:var(--slate)}
+.btn.sec:hover{background:var(--tint)}
+.btn.txt{border-color:transparent;background:none;color:var(--slate);padding:0 6px}
+.btn.txt:hover{background:none;text-decoration:underline}
+.btn.dgr{border-color:var(--rust);color:var(--rust);background:transparent}
+.btn.dgr:hover{background:color-mix(in srgb,var(--rust) 10%,transparent)}
+.btn.dgr.armed{background:var(--rust);color:#fff}
+.btn.sm{height:29px;padding:0 10px;font-size:12.5px}
+.btn.blk{width:100%}
+
+.panel{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.panel + .panel{margin-top:18px}
+.panel.alert-rust{border-top:2px solid var(--rust)}
+.panel.alert-amber{border-top:2px solid var(--amber)}
+/* the strata divider: 1px rule + tinted fill under every section header */
+.p-hd{display:flex;align-items:center;gap:10px;padding:13px 16px;border-bottom:1px solid var(--line);background:var(--sub);flex-wrap:wrap}
+.p-hd h3{font-size:14px;font-weight:600}
+.p-hd .hint{font-size:12px;color:var(--ink-45)}
+.p-hd .r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.p-bd{padding:16px}
+.p-ft{padding:12px 16px;border-top:1px solid var(--line);background:var(--sub);display:flex;gap:8px;align-items:center}
+
+.badge{display:inline-flex;align-items:center;gap:5px;height:21px;padding:0 7px;border-radius:4px;font-size:11px;font-weight:600;letter-spacing:.02em;background:var(--tint);color:var(--ink-60);border:1px solid var(--line)}
+.badge.moss{background:color-mix(in srgb,var(--moss) 13%,transparent);color:var(--moss);border-color:color-mix(in srgb,var(--moss) 30%,transparent)}
+.badge.amber{background:color-mix(in srgb,var(--amber) 15%,transparent);color:var(--amber);border-color:color-mix(in srgb,var(--amber) 32%,transparent)}
+.badge.rust{background:color-mix(in srgb,var(--rust) 12%,transparent);color:var(--rust);border-color:color-mix(in srgb,var(--rust) 30%,transparent)}
+.badge.slate{background:var(--tint);color:var(--slate);border-color:color-mix(in srgb,var(--slate) 30%,transparent)}
+.dot{width:7px;height:7px;border-radius:50%;flex:0 0 7px;background:var(--ink-45)}
+.dot.moss{background:var(--moss)}.dot.amber{background:var(--amber)}.dot.rust{background:var(--rust)}
+.dot.slate{background:var(--slate);animation:pulse 1.3s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+.stat{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-60)}
+
+/* tabs (§5.6) */
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{padding:10px 14px;font-size:13.5px;font-weight:500;color:var(--ink-60);border-bottom:2px solid transparent;margin-bottom:-1px;white-space:nowrap;display:flex;align-items:center;gap:7px;transition:color var(--t),border-color var(--t)}
+.tab:hover{color:var(--ink)}
+.tab.on{color:var(--ink);font-weight:600;border-bottom-color:var(--slate)}
+.tab .c{font-family:var(--f-mono);font-size:11.5px;background:var(--tint);padding:1px 6px;border-radius:4px}
+.tab.on .c{background:var(--tint-strong)}
+
+/* segmented */
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;background:var(--paper)}
+.seg button{padding:0 11px;height:30px;font-size:12.5px;font-weight:500;color:var(--ink-60);border-right:1px solid var(--line);transition:background var(--t),color var(--t)}
+.seg button:last-child{border-right:none}
+.seg button.on{background:var(--tint-strong);color:var(--ink);font-weight:600}
+.seg.mono button{font-family:var(--f-mono);font-size:11.5px}
+
+/* forms (§14) */
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12.5px;font-weight:600;margin-bottom:6px}
+.field label .req{color:var(--clay);margin-left:2px}
+.inp,select.inp,textarea.inp{width:100%;height:38px;padding:0 11px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);transition:box-shadow var(--t),border-color var(--t)}
+textarea.inp{height:auto;padding:9px 11px;resize:vertical}
+.inp:focus{outline:none;border-color:var(--slate);box-shadow:inset 0 0 0 1px var(--slate)}
+.inp[disabled]{background:var(--fog);opacity:.5}
+.inp.bad{border-color:var(--rust);box-shadow:inset 0 0 0 1px var(--rust)}
+.help{font-size:11.5px;color:var(--ink-45);margin-top:5px}
+.err-msg{font-size:11.5px;color:var(--rust);margin-top:5px;display:flex;gap:5px;align-items:center}
+.check{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;user-select:none}
+.check input{width:15px;height:15px;accent-color:var(--slate)}
+.saved{color:var(--moss);font-size:12px;font-weight:600;opacity:0;transition:opacity var(--t)}
+.saved.on{opacity:1}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+
+/* tables (§15) */
+.tbl-scroll{overflow:auto;max-height:none}
+table.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:13px}
+.tbl thead th{position:sticky;top:0;z-index:5;background:var(--paper);text-align:left;font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-45);padding:10px 12px;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+.tbl thead th.no-sort{cursor:default}
+.tbl thead th .ar{opacity:.3;font-size:9px;margin-left:3px}
+.tbl thead th.sorted .ar{opacity:1;color:var(--slate)}
+.tbl td{padding:11px 12px;border-bottom:1px solid var(--line);vertical-align:middle}
+.tbl td.n{text-align:right;font-size:12.5px}
+.tbl th.n{text-align:right}
+.tbl tbody tr{transition:background var(--t)}
+.tbl tbody tr:hover{background:var(--tint)}
+.tbl tbody tr td:first-child{border-left:3px solid transparent;padding-left:13px}
+.tbl tr.s-ok td:first-child{border-left-color:var(--moss)}
+.tbl tr.s-warn td:first-child{border-left-color:var(--amber)}
+.tbl tr.s-bad td:first-child{border-left-color:var(--rust)}
+.tbl.sticky-1 td:first-child,.tbl.sticky-1 th:first-child{position:sticky;left:0;background:var(--paper);z-index:4}
+.tbl.sticky-1 thead th:first-child{z-index:6}
+.tbl.sticky-1 tbody tr:hover td:first-child{background:color-mix(in srgb,var(--slate) 6%,var(--paper))}
+.sku{font-family:var(--f-mono);font-size:12.5px;font-weight:500}
+.pname{max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tbl.compact td{padding:6px 12px}
+.tbl.compact thead th{padding:7px 12px}
+.tbl-ft{display:flex;align-items:center;gap:12px;padding:11px 16px;border-top:1px solid var(--line);background:var(--sub);font-size:12.5px;color:var(--ink-60);flex-wrap:wrap}
+
+/* KPI cards (§7.1) */
+.kpis{display:grid;grid-template-columns:repeat(7,1fr);gap:10px;margin-bottom:20px}
+.kpi{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px 12px;text-align:left;position:relative;overflow:hidden;transition:border-color var(--t),background var(--t)}
+.kpi::after{content:"";position:absolute;inset:0 0 auto 0;height:2px;background:transparent;transition:background var(--t)}
+.kpi:hover{border-color:var(--slate)}
+.kpi.on{border-color:var(--slate);background:var(--tint)}
+.kpi.on::after{background:var(--slate)}
+.kpi.warn::after{background:var(--amber)}
+.kpi.bad::after{background:var(--rust)}
+.kpi-lbl{font-size:10.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-45);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi-val{font-size:21px;font-weight:600;margin-top:7px;display:block}
+.kpi-delta{font-size:11px;margin-top:3px;color:var(--ink-45);font-family:var(--f-mono)}
+.kpi-delta.up{color:var(--moss)}.kpi-delta.dn{color:var(--rust)}
+
+/* charts (§16) */
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.grid2 .panel + .panel{margin-top:0}
+.chart-wrap{padding:8px 8px 4px;position:relative}
+.chart-wrap svg{display:block;width:100%;height:auto}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding:4px 14px 12px;font-size:12px;color:var(--ink-60)}
+.legend i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:6px}
+.ctip{position:fixed;z-index:150;pointer-events:none;background:var(--ink);color:var(--paper);border-radius:var(--r);padding:8px 10px;font-size:12px;opacity:0;transform:translate(-50%,-118%);transition:opacity 110ms ease;white-space:nowrap;box-shadow:var(--shadow)}
+[data-theme="dark"] .ctip{background:#E9ECEC;color:#17191A}
+.ctip.on{opacity:1}
+.ctip b{font-family:var(--f-mono);font-weight:600}
+.ctip small{display:block;opacity:.65;font-size:10.5px;margin-top:2px}
+.donut-mid{position:absolute;inset:0;display:grid;place-items:center;pointer-events:none}
+.donut-mid div{text-align:center}
+.donut-mid .v{font-family:var(--f-mono);font-size:22px;font-weight:600}
+.donut-mid .l{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-45)}
+
+/* insight cards */
+.stat-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1px;background:var(--line)}
+.stat-cell{background:var(--paper);padding:14px 16px}
+.stat-lbl{font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-45);font-weight:600}
+.stat-val{font-size:19px;font-weight:600;margin-top:6px}
+.stat-note{font-size:11.5px;color:var(--ink-45);margin-top:2px}
+
+/* import methods (§8.1) */
+.methods{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.method{border:1px solid var(--line);border-radius:var(--r);padding:14px;text-align:left;background:var(--paper);transition:border-color var(--t),background var(--t)}
+.method:hover{border-color:var(--slate);background:var(--tint)}
+.method.on{border-color:var(--slate);background:var(--tint);box-shadow:inset 0 0 0 1px var(--slate)}
+.method .mi{width:30px;height:30px;border-radius:var(--r);display:grid;place-items:center;background:var(--tint-strong);color:var(--slate);margin-bottom:10px}
+.method h4{font-size:13.5px;font-weight:600}
+.method p{margin:4px 0 0;font-size:11.5px;color:var(--ink-45);line-height:1.45}
+.method.wide{grid-column:1/-1;display:flex;align-items:center;gap:14px}
+.method.wide .mi{margin:0}
+.method.wide .mtext{flex:1}
+.drop{border:1.5px dashed var(--line);border-radius:var(--r);padding:34px 20px;text-align:center;background:var(--sub);transition:border-color var(--t),background var(--t)}
+.drop.over{border-style:solid;border-color:var(--slate);background:var(--tint)}
+.drop.bad{border-color:var(--rust);background:color-mix(in srgb,var(--rust) 6%,transparent)}
+.drop h4{font-size:14px;margin-bottom:5px}
+.drop p{margin:0;font-size:12.5px;color:var(--ink-45)}
+.filechip{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:var(--r);padding:10px 12px;background:var(--paper)}
+.filechip .fi{width:28px;height:28px;border-radius:4px;display:grid;place-items:center;background:color-mix(in srgb,var(--moss) 14%,transparent);color:var(--moss)}
+.bar{height:6px;border-radius:100px;background:var(--tint-strong);overflow:hidden}
+.bar i{display:block;height:100%;background:var(--slate);width:0;transition:width 320ms ease;border-radius:100px}
+.bar.moss i{background:var(--moss)}
+.stage{display:flex;justify-content:space-between;font-size:12px;color:var(--ink-60);margin-bottom:7px}
+.stage .num{font-family:var(--f-mono)}
+.steps{display:flex;align-items:center;gap:0;margin-bottom:20px}
+.step{display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-45);font-weight:500}
+.step .sn{width:22px;height:22px;border-radius:50%;border:1px solid var(--line);display:grid;place-items:center;font-size:11px;font-family:var(--f-mono);flex:0 0 22px}
+.step.on{color:var(--ink);font-weight:600}
+.step.on .sn{background:var(--slate);border-color:var(--slate);color:#fff}
+[data-theme="dark"] .step.on .sn{color:#141617}
+.step.done .sn{background:color-mix(in srgb,var(--moss) 15%,transparent);border-color:var(--moss);color:var(--moss)}
+.step-line{flex:1;height:1px;background:var(--line);margin:0 12px;min-width:16px}
+.map-row{display:grid;grid-template-columns:1fr 26px 200px 1.2fr;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.map-row:last-child{border-bottom:none}
+.map-row .arrow{color:var(--ink-45);text-align:center}
+.map-row .prev{font-family:var(--f-mono);font-size:11.5px;color:var(--ink-45);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+select.inp.sm{height:32px;font-size:12.5px}
+
+/* empty / loading / error states (§18) */
+.empty{text-align:center;padding:52px 24px;max-width:440px;margin:0 auto}
+.empty .ei{width:46px;height:46px;border-radius:var(--r);background:var(--tint-strong);color:var(--slate);display:grid;place-items:center;margin:0 auto 14px}
+.empty h3{font-size:15px;margin-bottom:6px}
+.empty p{color:var(--ink-60);font-size:13px;margin:0 0 18px}
+.empty .acts{display:flex;gap:9px;justify-content:center;flex-wrap:wrap}
+.sk{background:linear-gradient(90deg,var(--tint) 25%,var(--tint-strong) 37%,var(--tint) 63%);background-size:400% 100%;animation:shimmer 1.3s linear infinite;border-radius:4px}
+@keyframes shimmer{from{background-position:100% 0}to{background-position:0 0}}
+.inline-err{display:flex;align-items:center;gap:10px;padding:11px 14px;border-radius:var(--r);background:color-mix(in srgb,var(--rust) 8%,transparent);border:1px solid color-mix(in srgb,var(--rust) 25%,transparent);color:var(--rust);font-size:13px}
+.inline-err .btn{margin-left:auto}
+.notice{display:flex;gap:10px;align-items:flex-start;padding:12px 14px;border-radius:var(--r);background:var(--tint);border:1px solid var(--line);font-size:12.5px;color:var(--ink-60)}
+.notice.amber{background:color-mix(in srgb,var(--amber) 9%,transparent);border-color:color-mix(in srgb,var(--amber) 26%,transparent)}
+
+/* overlays: drawer / dialog / popover / toast (§5.7, §5.8) */
+.scrim{position:fixed;inset:0;background:#23282B4d;z-index:100;opacity:0;pointer-events:none;transition:opacity var(--t)}
+.scrim.on{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,100%);background:var(--paper);border-left:1px solid var(--line);z-index:110;display:flex;flex-direction:column;transform:translateX(100%);transition:transform var(--t)}
+.drawer.on{transform:none}
+.drawer-hd{padding:16px;border-bottom:1px solid var(--line);background:var(--sub);display:flex;align-items:flex-start;gap:12px}
+.drawer-bd{flex:1;overflow-y:auto;padding:16px}
+.drawer-ft{padding:14px 16px;border-top:1px solid var(--line);background:var(--sub);display:flex;gap:8px}
+.dialog{position:fixed;top:50%;left:50%;transform:translate(-50%,-46%);width:min(520px,calc(100% - 32px));background:var(--paper);border:1px solid var(--line);border-radius:var(--r);z-index:110;opacity:0;pointer-events:none;transition:opacity var(--t),transform var(--t);box-shadow:var(--shadow);max-height:88vh;display:flex;flex-direction:column}
+.dialog.on{opacity:1;pointer-events:auto;transform:translate(-50%,-50%)}
+.dialog-hd{padding:16px;border-bottom:1px solid var(--line);background:var(--sub)}
+.dialog-bd{padding:16px;overflow-y:auto}
+.dialog-ft{padding:13px 16px;border-top:1px solid var(--line);background:var(--sub);display:flex;gap:8px;justify-content:flex-end}
+.pop{position:absolute;top:calc(100% + 8px);right:0;min-width:250px;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);z-index:80;opacity:0;pointer-events:none;transform:translateY(-4px);transition:opacity var(--t),transform var(--t);overflow:hidden}
+.pop.on{opacity:1;pointer-events:auto;transform:none}
+.pop-hd{padding:11px 13px;border-bottom:1px solid var(--line);background:var(--sub)}
+.pop-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 13px;font-size:13px;text-align:left;transition:background var(--t)}
+.pop-item:hover{background:var(--tint)}
+.pop-item .r{margin-left:auto;font-size:11.5px;color:var(--ink-45);font-family:var(--f-mono)}
+.pop-sep{height:1px;background:var(--line)}
+.notif{width:min(360px,calc(100vw - 24px))}
+.notif-item{display:flex;gap:11px;padding:12px 13px;border-bottom:1px solid var(--line);text-align:left;width:100%;transition:background var(--t)}
+.notif-item:hover{background:var(--tint)}
+.notif-item .nb{width:7px;height:7px;border-radius:50%;margin-top:6px;flex:0 0 7px}
+.notif-item p{margin:0;font-size:12.5px;line-height:1.45}
+.notif-item time{font-size:11px;color:var(--ink-45)}
+.results{position:absolute;top:calc(100% + 6px);left:0;right:0;background:var(--paper);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);z-index:80;max-height:340px;overflow-y:auto;display:none}
+.results.on{display:block}
+.res-grp{padding:8px 13px 4px;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-45);font-weight:700;background:var(--sub);border-bottom:1px solid var(--line)}
+.res-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 13px;text-align:left;font-size:13px;transition:background var(--t)}
+.res-item:hover{background:var(--tint)}
+.res-item .rt{margin-left:auto;font-size:11px;color:var(--ink-45)}
+.toasts{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:190;display:flex;flex-direction:column;gap:9px;align-items:center;width:max-content;max-width:calc(100vw - 32px)}
+.toast{display:flex;align-items:center;gap:11px;padding:11px 14px;border-radius:var(--r);background:var(--ink);color:var(--paper);font-size:13px;box-shadow:var(--shadow);animation:tin 220ms cubic-bezier(.2,.9,.3,1.2)}
+[data-theme="dark"] .toast{background:#E9ECEC;color:#17191A}
+.toast.out{animation:tout 180ms ease forwards}
+.toast .tc{width:7px;height:7px;border-radius:50%}
+.toast .tx{margin-left:6px;opacity:.6}
+@keyframes tin{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes tout{to{opacity:0;transform:translateY(8px)}}
+
+/* settings sub-nav */
+.set-grid{display:grid;grid-template-columns:212px 1fr;gap:22px;align-items:start}
+.set-nav{position:sticky;top:0;display:flex;flex-direction:column;gap:2px}
+.set-nav button{text-align:left;padding:9px 12px;border-radius:var(--r);font-size:13.5px;color:var(--ink-60);font-weight:500;transition:background var(--t),color var(--t)}
+.set-nav button:hover{background:var(--tint);color:var(--ink)}
+.set-nav button.on{background:var(--tint-strong);color:var(--ink);font-weight:600}
+.set-sec{display:none}
+.set-sec.on{display:block}
+.kv{display:flex;justify-content:space-between;gap:16px;padding:11px 0;border-bottom:1px solid var(--line);font-size:13px}
+.kv:last-child{border-bottom:none}
+.kv .k{color:var(--ink-60)}
+.kv .v{font-weight:500;text-align:right}
+.linked{display:flex;align-items:center;gap:12px;padding:12px 14px;border:1px solid var(--line);border-radius:var(--r);margin-bottom:10px}
+.linked .li{width:30px;height:30px;border-radius:4px;display:grid;place-items:center;background:color-mix(in srgb,var(--moss) 13%,transparent);color:var(--moss);flex:0 0 30px}
+.linked .lt{flex:1;min-width:0}
+.linked .lt b{font-size:13px;display:block}
+.linked .lt span{font-size:11.5px;color:var(--ink-45);display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.switch{position:relative;width:38px;height:21px;border-radius:100px;background:var(--line);transition:background var(--t);flex:0 0 38px}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:17px;height:17px;border-radius:50%;background:var(--paper);transition:transform var(--t)}
+.switch.on{background:var(--moss)}
+.switch.on::after{transform:translateX(17px)}
+
+/* journey map (§17) */
+.journey{display:flex;flex-wrap:wrap;align-items:center;gap:8px;font-size:12px}
+.jnode{padding:6px 11px;border:1px solid var(--line);border-radius:100px;background:var(--paper);white-space:nowrap}
+.jnode.hi{border-color:var(--slate);background:var(--tint);font-weight:600}
+.jarrow{color:var(--ink-45)}
+
+/* ============================================================
+   RESPONSIVE (§19)
+   ============================================================ */
+.side-toggle{display:none}
+@media (max-width:1439px){ .kpis{grid-template-columns:repeat(4,1fr)} }
+@media (max-width:1279px){
+  .side{width:var(--side-c)}
+  .side .lbl,.side .cnt,.side .side-grp{display:none}
+  .side .nav{justify-content:center;padding:0}
+  .side .nav .alert{position:absolute;top:7px;right:14px}
+  .side.mini{width:var(--side-w)}
+  .side.mini .lbl,.side.mini .cnt,.side.mini .side-grp{display:revert}
+  .side.mini .nav{justify-content:flex-start;padding:0 10px}
+  .side.mini .nav .alert{position:static}
+  .wrap{padding:0 20px 48px}
+}
+@media (max-width:1023px){
+  .grid2{grid-template-columns:1fr}
+  .set-grid{grid-template-columns:1fr}
+  .set-nav{flex-direction:row;overflow-x:auto;position:static;padding-bottom:6px}
+  .kpis{display:flex;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory}
+  .kpi{flex:0 0 168px;scroll-snap-align:start}
+  .methods{grid-template-columns:repeat(2,1fr)}
+  .row2{grid-template-columns:1fr}
+  .side{position:fixed;top:var(--hdr-h);bottom:0;left:0;z-index:70;width:var(--side-w);transform:translateX(-100%);transition:transform var(--t);box-shadow:var(--shadow)}
+  .side .lbl,.side .cnt,.side .side-grp{display:revert}
+  .side .nav{justify-content:flex-start;padding:0 10px}
+  .side .nav .alert{position:static}
+  .side.open{transform:none}
+  .side-toggle{display:grid}
+  .side-foot{display:none}
+  .search{max-width:none}
+}
+@media (max-width:767px){
+  .wrap{padding:0 14px 90px}
+  .page-head{padding:18px 0 14px}
+  .page-head h1{font-size:20px}
+  .page-head .acts{width:100%;margin-left:0}
+  .mark small,.usermenu-btn span,.syncpill .sl{display:none}
+  .search{order:3;flex:0 0 100%;max-width:none;display:none}
+  .methods{grid-template-columns:1fr}
+  .map-row{grid-template-columns:1fr;gap:5px}
+  .map-row .arrow{display:none}
+  .drawer{width:100%;top:auto;height:92vh;border-left:none;border-top:1px solid var(--line);border-radius:var(--r) var(--r) 0 0;transform:translateY(100%)}
+  .drawer.on{transform:none}
+  .side{top:auto;bottom:0;left:0;right:0;width:100%;height:auto;max-height:76vh;border-right:none;border-top:1px solid var(--line);border-radius:var(--r) var(--r) 0 0;transform:translateY(105%)}
+  .side.open{transform:none}
+  /* every table becomes card-per-row */
+  .tbl thead{display:none}
+  .tbl,.tbl tbody,.tbl tr,.tbl td{display:block;width:100%}
+  .tbl tr{border:1px solid var(--line);border-radius:var(--r);margin-bottom:9px;padding:10px 12px;position:relative}
+  .tbl tbody tr td:first-child{border-left:none;padding-left:0}
+  .tbl tr.s-ok{border-left:3px solid var(--moss)}
+  .tbl tr.s-warn{border-left:3px solid var(--amber)}
+  .tbl tr.s-bad{border-left:3px solid var(--rust)}
+  .tbl td{border-bottom:none;padding:3px 0;display:flex;justify-content:space-between;gap:14px;align-items:center;font-size:12.5px}
+  .tbl td::before{content:attr(data-l);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-45);font-weight:700;flex:0 0 auto}
+  .tbl td.hero{padding-bottom:7px;margin-bottom:5px;border-bottom:1px solid var(--line)}
+  .tbl td.hero::before{display:none}
+  .tbl td.hero .sku{font-size:13.5px}
+  .tbl td.n{text-align:right}
+  .tbl.sticky-1 td:first-child{position:static}
+  .pname{max-width:none;white-space:normal;text-align:right}
+  .stat-row{grid-template-columns:1fr 1fr}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+}
+</style>
+</head>
+<body>
+<style>
+.ic{width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex:0 0 auto}
+.ic.s{width:14px;height:14px}
+.ic.l{width:22px;height:22px}
+</style>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+<symbol id="i-dash" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="8" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="3" y="15" width="7" height="6" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/></symbol>
+<symbol id="i-import" viewBox="0 0 24 24"><path d="M12 3v11m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></symbol>
+<symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></symbol>
+<symbol id="i-plug" viewBox="0 0 24 24"><path d="M10.5 13.5 7 17a3.5 3.5 0 0 1-5-5l3.5-3.5"/><path d="M13.5 10.5 17 7a3.5 3.5 0 0 0-5-5L8.5 5.5"/><path d="M9.5 14.5 15 9"/></symbol>
+<symbol id="i-sync" viewBox="0 0 24 24"><path d="M20 11a8 8 0 0 0-14-4.5L3 9"/><path d="M4 13a8 8 0 0 0 14 4.5L21 15"/><path d="M3 5v4h4M21 19v-4h-4"/></symbol>
+<symbol id="i-match" viewBox="0 0 24 24"><path d="M12 3 20 12l-8 9-8-9z"/><path d="M8.5 12h7"/></symbol>
+<symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V4"/><path d="M4 20h16"/><path d="M8 16v-5M13 16V7M18 16v-8"/></symbol>
+<symbol id="i-file" viewBox="0 0 24 24"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h4"/></symbol>
+<symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2 2 2 0 1 1-4 0 1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1A1.7 1.7 0 0 0 3 15a2 2 0 1 1 0-4 1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1A1.7 1.7 0 0 0 10 4.1a2 2 0 1 1 4 0 1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1A1.7 1.7 0 0 0 21 11a2 2 0 1 1 0 4z"/></symbol>
+<symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></symbol>
+<symbol id="i-bell" viewBox="0 0 24 24"><path d="M18 8a6 6 0 1 0-12 0c0 6-2 7-2 7h16s-2-1-2-7"/><path d="M13.7 20a2 2 0 0 1-3.4 0"/></symbol>
+<symbol id="i-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+<symbol id="i-left" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></symbol>
+<symbol id="i-right" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></symbol>
+<symbol id="i-check" viewBox="0 0 24 24"><path d="m5 13 4 4L19 7"/></symbol>
+<symbol id="i-warn" viewBox="0 0 24 24"><path d="M10.3 4.3 2.6 17a2 2 0 0 0 1.7 3h15.4a2 2 0 0 0 1.7-3L13.7 4.3a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+<symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6 18 18M18 6 6 18"/></symbol>
+<symbol id="i-sheet" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9.5h18M9 9.5V20M3 15h18"/></symbol>
+<symbol id="i-link" viewBox="0 0 24 24"><path d="M9 15 15 9"/><path d="M11 6.5 13 4.5a3.5 3.5 0 1 1 5 5l-2 2"/><path d="M13 17.5 11 19.5a3.5 3.5 0 1 1-5-5l2-2"/></symbol>
+<symbol id="i-cloud" viewBox="0 0 24 24"><path d="M7 18a4 4 0 0 1-.4-8A6 6 0 0 1 18 9.5a3.8 3.8 0 0 1 1 7.4"/><path d="M12 21v-8m0 0 3 3m-3-3-3 3"/></symbol>
+<symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v11m0 0 4-4m-4 4-4-4"/><path d="M5 19h14"/></symbol>
+<symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+<symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></symbol>
+<symbol id="i-menu" viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h16"/></symbol>
+<symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/></symbol>
+<symbol id="i-out" viewBox="0 0 24 24"><path d="M15 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h9"/><path d="M18 12H9m9 0-3.5-3.5M18 12l-3.5 3.5"/></symbol>
+<symbol id="i-box" viewBox="0 0 24 24"><path d="m3.5 7.5 8.5-4.5 8.5 4.5v9L12 21l-8.5-4.5z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9"/></symbol>
+<symbol id="i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/></symbol>
+<symbol id="i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></symbol>
+<symbol id="i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></symbol>
+<symbol id="i-refresh" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></symbol>
+</defs></svg>
+
+<!-- ======================= PAGE 1 — LOGIN (§6) ======================= -->
+<div id="login">
+  <div>
+    <div class="login-card">
+      <div class="login-strata">
+        <i style="background:var(--slate)"></i><i style="background:var(--moss)"></i><i style="background:var(--amber)"></i><i style="background:var(--clay)"></i>
+      </div>
+      <div class="login-bd">
+        <div class="login-mark">
+          <svg class="ic l" style="color:var(--slate)"><use href="#i-layers"/></svg>
+          <div><b style="font-size:19px;letter-spacing:.02em">Strata</b></div>
+        </div>
+        <p class="login-sub">Inventory &amp; Shopify sales reconciliation</p>
+        <div class="banner err" id="loginErr" style="display:none">
+          <svg class="ic s" style="margin-top:2px"><use href="#i-warn"/></svg>
+          <span>Incorrect email or password.</span>
+        </div>
+        <div class="field">
+          <label for="lemail">Email</label>
+          <input class="inp" id="lemail" type="email" value="priya@deodap.in" autocomplete="username">
+          <div class="err-msg" id="lemailErr" style="display:none"><svg class="ic s"><use href="#i-warn"/></svg> Enter a valid email address.</div>
+        </div>
+        <div class="field">
+          <label for="lpass">Password</label>
+          <input class="inp" id="lpass" type="password" value="demo-account" autocomplete="current-password">
+        </div>
+        <label class="check" style="margin-bottom:20px"><input type="checkbox" checked> Keep me signed in</label>
+        <button class="btn pri blk" id="loginBtn" style="height:40px">Log in</button>
+        <div style="text-align:center;margin-top:14px"><button class="btn txt" onclick="toast('Password reset link sent to your email','moss')">Forgot password?</button></div>
+      </div>
+      <div class="login-foot">
+        <span>Demo prototype · no real data</span>
+        <button class="btn txt" style="font-size:12px" id="loginBad">Show error state</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ======================= APP SHELL (§2) ======================= -->
+<div class="app" id="app">
+
+  <!-- HEADER (§3) -->
+  <header class="hdr">
+    <button class="icon-btn side-toggle" id="sideToggle" aria-label="Open navigation"><svg class="ic"><use href="#i-menu"/></svg></button>
+    <button class="mark" onclick="go('dashboard')" aria-label="Go to dashboard">
+      <svg class="ic l" style="color:var(--slate)"><use href="#i-layers"/></svg>
+      <div style="text-align:left"><b>Strata</b><small>Deodap Retail</small></div>
+    </button>
+
+    <div class="search">
+      <svg class="ic s"><use href="#i-search"/></svg>
+      <input id="gsearch" type="search" placeholder="Search SKUs, imports, settings…" autocomplete="off" aria-label="Global search">
+      <div class="results" id="gresults"></div>
+    </div>
+
+    <div class="hdr-r">
+      <div style="position:relative">
+        <button class="syncpill" id="syncPill"><span class="dot moss"></span><span class="sl">Synced</span><svg class="ic s" style="opacity:.5"><use href="#i-down"/></svg></button>
+        <div class="pop" id="syncPop">
+          <div class="pop-hd">
+            <div style="font-weight:600;font-size:13px">Shopify sync</div>
+            <div style="font-size:11.5px;color:var(--ink-45)" id="syncPopTime">Last sync 12 minutes ago · 12s</div>
+          </div>
+          <button class="pop-item" onclick="closePops();runSync()"><svg class="ic s"><use href="#i-sync"/></svg> Sync now</button>
+          <button class="pop-item" onclick="closePops();go('sync-history')"><svg class="ic s"><use href="#i-clock"/></svg> View sync history</button>
+          <div class="pop-sep"></div>
+          <button class="pop-item" onclick="closePops();failSync()"><svg class="ic s" style="color:var(--rust)"><use href="#i-warn"/></svg> Simulate a failed sync</button>
+        </div>
+      </div>
+
+      <div style="position:relative">
+        <button class="icon-btn" id="bellBtn" aria-label="Notifications"><svg class="ic"><use href="#i-bell"/></svg><span class="dotbadge" id="bellDot"></span></button>
+        <div class="pop notif" id="notifPop">
+          <div class="pop-hd" style="display:flex;align-items:center">
+            <b style="font-size:13px">Notifications</b>
+            <button class="btn txt" style="margin-left:auto;font-size:12px" onclick="clearNotifs()">Mark all read</button>
+          </div>
+          <div id="notifList"></div>
+        </div>
+      </div>
+
+      <div style="position:relative">
+        <button class="usermenu-btn" id="userBtn">
+          <span class="avatar">PM</span><span>Priya M.</span>
+          <svg class="ic s" style="opacity:.5"><use href="#i-down"/></svg>
+        </button>
+        <div class="pop" id="userPop">
+          <div class="pop-hd">
+            <div style="font-weight:600;font-size:13px">Priya Mehta</div>
+            <div style="font-size:11.5px;color:var(--ink-45)">Inventory lead · priya@deodap.in</div>
+          </div>
+          <button class="pop-item" onclick="closePops();go('settings','profile')"><svg class="ic s"><use href="#i-user"/></svg> Profile</button>
+          <button class="pop-item" onclick="closePops();go('settings')"><svg class="ic s"><use href="#i-gear"/></svg> Settings</button>
+          <button class="pop-item" id="themeBtn"><svg class="ic s"><use href="#i-moon"/></svg> <span>Dark theme</span></button>
+          <div class="pop-sep"></div>
+          <div class="pop-hd" style="border-top:none"><span class="eyebrow">Prototype controls</span></div>
+          <button class="pop-item" onclick="closePops();setEmpty(!STATE.empty)"><svg class="ic s"><use href="#i-box"/></svg> <span id="emptyLbl">Show first-run empty state</span></button>
+          <button class="pop-item" onclick="closePops();breakAnalytics()"><svg class="ic s"><use href="#i-warn"/></svg> Show dashboard error state</button>
+          <div class="pop-sep"></div>
+          <button class="pop-item" onclick="logout()"><svg class="ic s"><use href="#i-out"/></svg> Log out</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="body">
+    <!-- SIDEBAR (§4) -->
+    <nav class="side" id="side">
+      <div class="side-nav">
+        <button class="nav on" data-go="dashboard"><svg class="ic"><use href="#i-dash"/></svg><span class="lbl">Dashboard</span></button>
+
+        <div class="side-grp eyebrow">Import</div>
+        <button class="nav" data-go="import"><svg class="ic"><use href="#i-import"/></svg><span class="lbl">Inventory import</span></button>
+        <button class="nav" data-go="import-history"><svg class="ic"><use href="#i-clock"/></svg><span class="lbl">Import history</span><span class="cnt">14</span></button>
+
+        <div class="side-grp eyebrow">Shopify</div>
+        <button class="nav" data-go="shopify"><svg class="ic"><use href="#i-plug"/></svg><span class="lbl">Connection</span></button>
+        <button class="nav" data-go="sync-history"><svg class="ic"><use href="#i-sync"/></svg><span class="lbl">Sync history</span></button>
+
+        <div class="side-grp eyebrow">Reconcile</div>
+        <button class="nav" data-go="matching"><svg class="ic"><use href="#i-match"/></svg><span class="lbl">SKU matching</span><span class="alert" id="navAlert"></span></button>
+
+        <div class="side-grp eyebrow">Insight</div>
+        <button class="nav" data-go="analytics"><svg class="ic"><use href="#i-chart"/></svg><span class="lbl">Analytics</span></button>
+        <button class="nav" data-go="reports"><svg class="ic"><use href="#i-file"/></svg><span class="lbl">Reports</span></button>
+
+        <div style="height:1px;background:var(--line);margin:12px 2px"></div>
+        <button class="nav" data-go="settings"><svg class="ic"><use href="#i-gear"/></svg><span class="lbl">Settings</span></button>
+      </div>
+      <div class="side-foot">
+        <button class="nav" id="collapseBtn" style="height:32px"><svg class="ic s"><use href="#i-left"/></svg><span class="lbl">Collapse</span></button>
+      </div>
+    </nav>
+
+    <main class="main" id="main">
+
+<!-- ======================= PAGE 2 — DASHBOARD (§7) ======================= -->
+<section class="page on" id="p-dashboard"><div class="wrap">
+  <div class="page-head">
+    <div>
+      <h1>Dashboard</h1>
+      <div class="sub"><span class="dot moss"></span> <span id="freshness">Synced 12 minutes ago</span> · 1,240 SKUs reconciled against mystore.myshopify.com</div>
+    </div>
+    <div class="acts">
+      <button class="btn" onclick="go('reports')"><svg class="ic s"><use href="#i-dl"/></svg> Export snapshot</button>
+      <button class="btn pri" onclick="runSync()"><svg class="ic s"><use href="#i-sync"/></svg> Sync now</button>
+    </div>
+  </div>
+
+  <!-- empty state (§7.4) -->
+  <div id="dashEmpty" style="display:none">
+    <div class="panel"><div class="empty">
+      <div class="ei"><svg class="ic l"><use href="#i-layers"/></svg></div>
+      <h3>No data yet</h3>
+      <p>Connect Shopify and import an inventory sheet. Strata lines the two layers up and shows you where they don't agree.</p>
+      <div class="acts">
+        <button class="btn pri" onclick="go('shopify')">Connect Shopify</button>
+        <button class="btn sec" onclick="go('import')">Import inventory</button>
+      </div>
+    </div></div>
+    <div class="panel"><div class="p-hd"><h3>What happens next</h3><span class="hint">The reconciliation loop, start to finish</span></div>
+      <div class="p-bd"><div class="journey">
+        <span class="jnode hi">Connect Shopify</span><span class="jarrow">→</span>
+        <span class="jnode hi">Import inventory</span><span class="jarrow">→</span>
+        <span class="jnode">Map columns</span><span class="jarrow">→</span>
+        <span class="jnode">Match SKUs</span><span class="jarrow">→</span>
+        <span class="jnode">Dashboard fills in</span><span class="jarrow">→</span>
+        <span class="jnode">Export reports</span>
+      </div></div>
+    </div>
+  </div>
+
+  <div id="dashContent">
+    <!-- 7 summary cards, clickable filters (§7.3) -->
+    <div class="kpis" id="kpis"></div>
+
+    <div id="dashErr" style="display:none;margin-bottom:18px">
+      <div class="inline-err">
+        <svg class="ic"><use href="#i-warn"/></svg>
+        <div><b>Couldn't load analytics.</b> Summary cards below are from the last successful run and may be outdated.</div>
+        <button class="btn sm" onclick="fixAnalytics()"><svg class="ic s"><use href="#i-refresh"/></svg> Retry</button>
+      </div>
+    </div>
+
+    <div id="dashCharts">
+      <div class="grid2">
+        <div class="panel">
+          <div class="p-hd"><h3>Sales trend</h3><div class="r"><div class="seg mono" data-range="salesTrend"><button class="on">7D</button><button>30D</button><button>90D</button></div></div></div>
+          <div class="chart-wrap" id="c-sales"></div>
+          <div class="legend"><span><i style="background:var(--slate)"></i>Units sold</span><span><i style="background:var(--moss)"></i>Prior period</span></div>
+        </div>
+        <div class="panel">
+          <div class="p-hd"><h3>Revenue trend</h3><div class="r"><div class="seg mono" data-range="revTrend"><button class="on">7D</button><button>30D</button><button>90D</button></div></div></div>
+          <div class="chart-wrap" id="c-rev"></div>
+          <div class="legend"><span><i style="background:var(--clay)"></i>Revenue (₹)</span><span><i style="background:var(--line)"></i>Prior period</span></div>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="panel">
+          <div class="p-hd"><h3>Top selling SKUs</h3><div class="r"><div class="seg mono" data-range="topSku"><button>7D</button><button class="on">30D</button><button>90D</button></div></div></div>
+          <div class="chart-wrap" id="c-top"></div>
+        </div>
+        <div class="panel">
+          <div class="p-hd"><h3>Sales share by category</h3><div class="r"><div class="seg mono" data-range="share"><button>7D</button><button class="on">30D</button><button>90D</button></div></div></div>
+          <div class="chart-wrap" id="c-share" style="position:relative"></div>
+          <div class="legend" id="c-share-legend"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px">
+        <div class="p-hd"><h3>Inventory status by category</h3><span class="hint">In stock / low / out — from the imported sheet</span>
+          <div class="r"><span class="stat"><span class="dot moss"></span>In</span><span class="stat"><span class="dot amber"></span>Low</span><span class="stat"><span class="dot rust"></span>Out</span></div>
+        </div>
+        <div class="chart-wrap" id="c-inv"></div>
+      </div>
+    </div>
+
+    <!-- main reconciliation table (§7.1) -->
+    <div class="panel">
+      <div class="p-hd">
+        <h3>Reconciliation</h3>
+        <span class="badge slate" id="filterChip" style="display:none"></span>
+        <div class="r">
+          <div class="search" style="max-width:190px"><svg class="ic s"><use href="#i-search"/></svg><input class="inp" id="dashSearch" placeholder="Filter SKU or product" style="height:30px;font-size:12.5px;padding-left:32px;background:var(--paper)"></div>
+          <div class="seg" id="densityToggle"><button class="on">Comfortable</button><button>Compact</button></div>
+        </div>
+      </div>
+      <div class="tbl-scroll" style="max-height:520px">
+        <table class="tbl sticky-1" id="dashTable">
+          <thead><tr>
+            <th data-sort="sku">SKU <span class="ar">▲</span></th>
+            <th data-sort="name">Product name <span class="ar">▲</span></th>
+            <th class="n" data-sort="imported">Imported qty <span class="ar">▲</span></th>
+            <th class="n" data-sort="current">Current inventory <span class="ar">▲</span></th>
+            <th class="n" data-sort="sales">Shopify sales <span class="ar">▲</span></th>
+            <th class="n" data-sort="pct">Sales % <span class="ar">▲</span></th>
+            <th class="n" data-sort="revenue">Revenue <span class="ar">▲</span></th>
+            <th data-sort="status">Stock status <span class="ar">▲</span></th>
+          </tr></thead>
+          <tbody id="dashBody"></tbody>
+        </table>
+      </div>
+      <div class="tbl-ft">
+        <span id="dashCount">Showing 12 of 1,240 SKUs</span>
+        <span class="spacer"></span>
+        <button class="btn sm" id="clearFilter" style="display:none">Clear filter</button>
+        <button class="btn sm" onclick="go('reports')">Open in reports</button>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ======================= PAGE 3 — INVENTORY IMPORT (§8) ======================= -->
+<section class="page" id="p-import"><div class="wrap">
+  <div class="page-head">
+    <div><h1>Inventory import</h1><div class="sub" id="importSub">Bring in a stock sheet. Google Sheet sources stay linked and can be re-run.</div></div>
+    <div class="acts"><button class="btn" onclick="go('import-history')"><svg class="ic s"><use href="#i-clock"/></svg> Import history</button></div>
+  </div>
+
+  <!-- stage 0: choose method -->
+  <div id="impStage0">
+    <div class="panel">
+      <div class="p-hd"><h3>Choose a method</h3><span class="hint">All five end at the same column-mapping step</span></div>
+      <div class="p-bd">
+        <div class="methods">
+          <button class="method" data-m="csv"><div class="mi"><svg class="ic"><use href="#i-file"/></svg></div><h4>CSV file</h4><p>One-time upload, up to 25&nbsp;MB</p></button>
+          <button class="method" data-m="excel"><div class="mi"><svg class="ic"><use href="#i-file"/></svg></div><h4>Excel file</h4><p>.xlsx or .xls, one-time upload</p></button>
+          <button class="method" data-m="csvurl"><div class="mi"><svg class="ic"><use href="#i-link"/></svg></div><h4>CSV URL</h4><p>Public link, re-runnable</p></button>
+          <button class="method" data-m="excelurl"><div class="mi"><svg class="ic"><use href="#i-link"/></svg></div><h4>Excel URL</h4><p>Public link, re-runnable</p></button>
+          <button class="method wide" data-m="gsheet">
+            <div class="mi"><svg class="ic"><use href="#i-sheet"/></svg></div>
+            <div class="mtext"><h4>Google Sheet <span class="badge moss" style="margin-left:6px">Recommended</span></h4><p>Stays linked to Strata. Re-sync in one click whenever the sheet changes — no re-upload.</p></div>
+            <svg class="ic" style="color:var(--ink-45)"><use href="#i-right"/></svg>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- method-specific input panels -->
+    <div class="panel" id="impInput" style="display:none">
+      <div class="p-hd"><h3 id="impInputTitle">Upload file</h3><div class="r"><button class="btn sm" onclick="resetImport()">Change method</button></div></div>
+      <div class="p-bd" id="impInputBody"></div>
+      <div class="p-ft"><span class="hint" id="impInputHint"></span><span class="spacer"></span><button class="btn pri" id="impContinue" disabled>Continue to mapping</button></div>
+    </div>
+  </div>
+
+  <!-- stage 1: column mapping (§8.5) -->
+  <div id="impStage1" style="display:none">
+    <div class="steps" id="impSteps"></div>
+    <div class="panel">
+      <div class="p-hd"><h3>Map your columns</h3><span class="hint">Pre-filled with our best guess — check it before continuing</span></div>
+      <div class="p-bd">
+        <div class="map-row" style="border-bottom:1px solid var(--line);padding-bottom:8px">
+          <span class="eyebrow">Your column</span><span></span><span class="eyebrow">Maps to</span><span class="eyebrow">Preview</span>
+        </div>
+        <div id="mapRows"></div>
+      </div>
+      <div class="p-ft"><button class="btn" onclick="impGo(0)">Back</button><span class="spacer"></span><button class="btn pri" onclick="impGo(2)">Continue to preview</button></div>
+    </div>
+  </div>
+
+  <!-- stage 2: data preview (§8.6) -->
+  <div id="impStage2" style="display:none">
+    <div class="steps" id="impSteps2"></div>
+    <div class="panel">
+      <div class="p-hd">
+        <h3>Preview</h3>
+        <span class="hint"><b class="num">1,240</b> rows detected · <b class="num">3</b> flagged (missing SKU) · <b class="num">2</b> duplicates to merge</span>
+        <div class="r"><label class="check"><input type="checkbox" id="flagOnly"> Show only flagged</label></div>
+      </div>
+      <div class="tbl-scroll" style="max-height:360px">
+        <table class="tbl"><thead><tr><th>SKU</th><th>Product name</th><th class="n">Quantity</th><th>Flag</th></tr></thead><tbody id="previewBody"></tbody></table>
+      </div>
+      <div class="p-ft"><button class="btn" onclick="impGo(1)">Back</button><span class="spacer"></span><span class="hint">Duplicates merge by summing quantity</span><button class="btn cta" onclick="impRun()">Import 1,240 rows</button></div>
+    </div>
+  </div>
+
+  <!-- stage 3: progress (§8.7) -->
+  <div id="impStage3" style="display:none">
+    <div class="panel">
+      <div class="p-hd"><h3>Importing</h3><span class="hint">Don't close this tab</span></div>
+      <div class="p-bd">
+        <div class="stage"><span id="impStageLbl">Reading file…</span><span class="num" id="impPctLbl">10%</span></div>
+        <div class="bar"><i id="impBar" style="width:10%"></i></div>
+        <div style="margin-top:18px;display:flex;flex-direction:column;gap:9px" id="impLog"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- stage 4: success (§8.7) -->
+  <div id="impStage4" style="display:none">
+    <div class="panel alert-moss" style="border-top:2px solid var(--moss)">
+      <div class="p-bd" style="text-align:center;padding:34px 20px">
+        <div class="ei" style="width:46px;height:46px;border-radius:var(--r);display:grid;place-items:center;margin:0 auto 14px;background:color-mix(in srgb,var(--moss) 14%,transparent);color:var(--moss)"><svg class="ic l"><use href="#i-check"/></svg></div>
+        <h3 style="font-size:17px;margin-bottom:6px"><span class="num">1,238</span> SKUs imported</h3>
+        <p style="color:var(--ink-60);margin:0 0 4px">2 duplicate rows merged · 0 rows rejected</p>
+        <p style="color:var(--ink-45);font-size:12.5px;margin:0 0 20px">42 imported SKUs don't match a Shopify product yet.</p>
+        <div style="display:flex;gap:9px;justify-content:center;flex-wrap:wrap">
+          <button class="btn cta" onclick="go('matching')">Review SKU matching</button>
+          <button class="btn sec" onclick="resetImport()">Import another source</button>
+        </div>
+      </div>
+      <div class="stat-row" style="border-top:1px solid var(--line)">
+        <div class="stat-cell"><div class="stat-lbl">Rows read</div><div class="stat-val">1,240</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Imported</div><div class="stat-val" style="color:var(--moss)">1,238</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Merged</div><div class="stat-val" style="color:var(--amber)">2</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Unmatched</div><div class="stat-val" style="color:var(--rust)">42</div></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+<!-- ======================= IMPORT HISTORY (§8.8) ======================= -->
+<section class="page" id="p-import-history"><div class="wrap">
+  <div class="page-head">
+    <div><h1>Import history</h1><div class="sub">Every inventory load, and which ones can be re-run</div></div>
+    <div class="acts"><button class="btn pri" onclick="go('import')"><svg class="ic s"><use href="#i-plus"/></svg> New import</button></div>
+  </div>
+  <div class="panel">
+    <div class="p-hd"><h3>All imports</h3><div class="r"><div class="seg" id="impHistFilter"><button class="on">All</button><button>Complete</button><button>Failed</button></div></div></div>
+    <div class="tbl-scroll">
+      <table class="tbl"><thead><tr><th>Source</th><th>Date</th><th class="n">Rows imported</th><th class="n">Rows flagged</th><th>Status</th><th class="no-sort"></th></tr></thead>
+      <tbody id="impHistBody"></tbody></table>
+    </div>
+    <div class="tbl-ft"><span>Linked sources (Google Sheet, URL) can be re-run without re-uploading.</span></div>
+  </div>
+</div></section>
+
+<!-- ======================= PAGE 4 — SHOPIFY CONNECTION (§9) ======================= -->
+<section class="page" id="p-shopify"><div class="wrap">
+  <div class="page-head">
+    <div><h1>Shopify connection</h1><div class="sub" id="shopSub"><span class="dot moss"></span> Connected · synced 12 minutes ago</div></div>
+    <div class="acts" id="shopActs">
+      <button class="btn dgr" id="disconnectBtn">Disconnect</button>
+      <button class="btn pri" onclick="runSync(true)"><svg class="ic s"><use href="#i-sync"/></svg> Sync now</button>
+    </div>
+  </div>
+
+  <!-- connected -->
+  <div id="shopConnected">
+    <div class="panel">
+      <div class="p-hd"><h3>Store</h3><div class="r"><span class="badge moss"><span class="dot moss"></span>Live</span></div></div>
+      <div class="stat-row">
+        <div class="stat-cell"><div class="stat-lbl">Store</div><div class="stat-val" style="font-size:14px;font-family:var(--f-sans)">mystore.myshopify.com</div><div class="stat-note">Deodap Retail · Shopify Plus</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Products</div><div class="stat-val">340</div><div class="stat-note">1,204 variants</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Orders pulled</div><div class="stat-val">1,204</div><div class="stat-note">Rolling 90 days</div></div>
+        <div class="stat-cell"><div class="stat-lbl">Token scopes</div><div class="stat-val" style="font-size:13px;font-family:var(--f-mono)">read_products<br>read_orders</div><div class="stat-note">Valid until 14 Nov 2026</div></div>
+      </div>
+    </div>
+
+    <!-- sync progress (§9.3) -->
+    <div class="panel" id="syncProgress" style="display:none">
+      <div class="p-hd"><h3>Syncing mystore.myshopify.com</h3><div class="r"><span class="dot slate"></span><span class="hint">In progress</span></div></div>
+      <div class="p-bd">
+        <div class="stage"><span>Fetching products &amp; variants</span><span class="num" id="syncP1">0%</span></div>
+        <div class="bar" style="margin-bottom:16px"><i id="syncB1"></i></div>
+        <div class="stage"><span>Fetching orders (last 90 days)</span><span class="num" id="syncP2">0%</span></div>
+        <div class="bar"><i id="syncB2"></i></div>
+      </div>
+    </div>
+
+    <div class="panel" id="syncErrPanel" style="display:none;border-top:2px solid var(--rust)">
+      <div class="p-bd"><div class="inline-err">
+        <svg class="ic"><use href="#i-warn"/></svg>
+        <div><b>Sync failed.</b> Shopify is temporarily limiting requests. Strata will retry on its own in about 4 minutes.</div>
+        <button class="btn sm" onclick="runSync(true)">Retry now</button>
+      </div></div>
+    </div>
+
+    <div class="panel">
+      <div class="p-hd"><h3>Recent syncs</h3><div class="r"><button class="btn sm" onclick="go('sync-history')">Full history</button></div></div>
+      <div class="tbl-scroll">
+        <table class="tbl"><thead><tr><th>Date</th><th class="n">Products</th><th class="n">Orders</th><th>Result</th><th class="n">Duration</th></tr></thead>
+        <tbody id="syncMiniBody"></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <!-- not connected (§9.4) -->
+  <div id="shopEmpty" style="display:none">
+    <div class="panel"><div class="empty">
+      <div class="ei"><svg class="ic l"><use href="#i-plug"/></svg></div>
+      <h3>No store connected</h3>
+      <p>Connect your Shopify store to start matching sales against your inventory sheet.</p>
+      <div class="acts"><button class="btn cta" onclick="openWizard()">Connect Shopify</button></div>
+    </div></div>
+  </div>
+</div></section>
+
+<!-- ======================= SYNC HISTORY ======================= -->
+<section class="page" id="p-sync-history"><div class="wrap">
+  <div class="page-head">
+    <div><h1>Sync history</h1><div class="sub">Every pull from Shopify, with what came back</div></div>
+    <div class="acts"><button class="btn pri" onclick="runSync(true)"><svg class="ic s"><use href="#i-sync"/></svg> Sync now</button></div>
+  </div>
+  <div class="panel">
+    <div class="p-hd"><h3>All syncs</h3><span class="hint">Times shown in IST</span></div>
+    <div class="tbl-scroll"><table class="tbl"><thead><tr><th>Date</th><th>Trigger</th><th class="n">Products</th><th class="n">Orders</th><th>Result</th><th class="n">Duration</th></tr></thead><tbody id="syncHistBody"></tbody></table></div>
+    <div class="tbl-ft"><span>Partial syncs re-fetch only the missing pages on the next run.</span></div>
+  </div>
+</div></section>
+
+<!-- ======================= PAGE 5 — SKU MATCHING (§10) ======================= -->
+<section class="page" id="p-matching"><div class="wrap">
+  <div class="page-head">
+    <div><h1>SKU matching</h1><div class="sub">Imported SKUs lined up against Shopify products. Links you make here stick for future syncs.</div></div>
+    <div class="acts"><button class="btn" onclick="toast('Matching re-run — 1,180 matched, 42 to review, 12 missing','moss')"><svg class="ic s"><use href="#i-refresh"/></svg> Re-run matching</button></div>
+  </div>
+
+  <div class="panel">
+    <div class="tabs" id="matchTabs">
+      <button class="tab on" data-t="review">To review <span class="c" id="cReview">42</span></button>
+      <button class="tab" data-t="missing">Missing in Shopify <span class="c" id="cMissing">12</span></button>
+      <button class="tab" data-t="dupe">Duplicates <span class="c" id="cDupe">6</span></button>
+      <button class="tab" data-t="matched">Matched <span class="c" id="cMatched">1,180</span></button>
+    </div>
+    <div class="p-hd" style="border-bottom:1px solid var(--line)">
+      <div class="search" style="max-width:230px"><svg class="ic s"><use href="#i-search"/></svg><input class="inp" id="matchSearch" placeholder="Search SKU or product" style="height:30px;font-size:12.5px;padding-left:32px"></div>
+      <span class="hint" id="matchHint">42 SKUs matched on a fuzzy rule — confirm or correct each one.</span>
+      <div class="r"><button class="btn sm" onclick="acceptAll()">Accept all high-confidence</button></div>
+    </div>
+    <div class="tbl-scroll" style="max-height:520px">
+      <table class="tbl sticky-1"><thead><tr>
+        <th>SKU</th><th>Product name</th><th class="n">Inventory qty</th><th>Shopify match</th><th>Confidence</th><th class="no-sort"></th>
+      </tr></thead><tbody id="matchBody"></tbody></table>
+    </div>
+    <div class="tbl-ft"><span id="matchCount"></span><span class="spacer"></span><span class="hint">Linked pairs are remembered — future syncs match them automatically.</span></div>
+  </div>
+</div></section>
+
+<!-- ======================= PAGE 6 — ANALYTICS (§11) ======================= -->
+<section class="page" id="p-analytics"><div class="wrap">
+  <div class="page-head">
+    <div><h1>Analytics</h1><div class="sub"><span class="dot moss"></span> As of the 09:40 sync · figures recalculate after every import and sync</div></div>
+    <div class="acts">
+      <select class="inp" id="anRange" style="width:auto;height:36px"><option>Last 7 days</option><option selected>Last 30 days</option><option>Last 90 days</option><option>Custom range…</option></select>
+      <select class="inp" id="anCat" style="width:auto;height:36px"><option>All categories</option><option>Kitchen</option><option>Home &amp; decor</option><option>Stationery</option><option>Toys</option><option>Festive</option></select>
+    </div>
+  </div>
+
+  <div class="panel" style="margin-bottom:18px">
+    <div class="tabs" id="lensTabs">
+      <button class="tab on" data-l="sales">Sales</button>
+      <button class="tab" data-l="inventory">Inventory health</button>
+      <button class="tab" data-l="sku">SKU performance</button>
+    </div>
+    <div class="p-hd"><span class="hint" id="lensHint">Units and revenue over time, against the prior period of equal length.</span></div>
+  </div>
+
+  <div class="grid2">
+    <div class="panel">
+      <div class="p-hd"><h3 id="lensChartTitle">Sales trend</h3><span class="hint">Primary view</span></div>
+      <div class="chart-wrap" id="c-lens" style="position:relative"></div>
+      <div class="legend" id="c-lens-legend"></div>
+    </div>
+    <div class="panel">
+      <div class="p-hd"><h3>Supporting metrics</h3></div>
+      <div class="stat-row" id="lensStats"></div>
+      <div class="p-bd" id="lensInsight"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="p-hd"><h3 id="lensTableTitle">Sales by SKU</h3><div class="r"><button class="btn sm" onclick="go('reports')">Export this view</button></div></div>
+    <div class="tbl-scroll" style="max-height:440px"><table class="tbl" id="lensTable"><thead id="lensHead"></thead><tbody id="lensBody"></tbody></table></div>
+  </div>
+</div></section>
+
+<!-- ======================= PAGE 7 — REPORTS (§12) ======================= -->
+<section class="page" id="p-reports"><div class="wrap">
+  <div class="page-head">
+    <div><h1>Reports</h1><div class="sub">Preview what you'll get, then export it</div></div>
+  </div>
+
+  <div class="toolbar">
+    <span class="eyebrow">Report type</span>
+    <div class="seg" id="repType"><button class="on">Inventory</button><button>Sales</button><button>SKU performance</button></div>
+    <span class="eyebrow" style="margin-left:10px">Range</span>
+    <select class="inp sm" style="width:auto"><option>Last 30 days</option><option>Last 90 days</option><option>This financial year</option></select>
+    <span class="spacer"></span>
+    <span class="eyebrow">Export as</span>
+    <button class="btn sm" data-exp="CSV">CSV</button>
+    <button class="btn sm" data-exp="Excel">Excel</button>
+    <button class="btn sm" data-exp="PDF">PDF</button>
+  </div>
+
+  <div class="panel">
+    <div class="p-hd"><h3 id="repTitle">Inventory report</h3><span class="hint" id="repHint">1,240 rows · generated from the 28 Jul import</span>
+      <div class="r"><span class="badge" id="repFmt">Preview</span></div>
+    </div>
+    <div class="tbl-scroll" style="max-height:460px"><table class="tbl"><thead id="repHead"></thead><tbody id="repBody"></tbody></table></div>
+    <div class="p-ft"><span class="hint" id="repFoot">Showing the first 12 rows of the export.</span><span class="spacer"></span><button class="btn cta" id="repExport">Export CSV</button></div>
+  </div>
+
+  <div class="panel" id="expCenter" style="display:none">
+    <div class="p-hd"><h3>Export centre</h3></div>
+    <div class="p-bd"><div id="expList" style="display:flex;flex-direction:column;gap:10px"></div></div>
+  </div>
+</div></section>
+
+<!-- ======================= PAGE 8 — SETTINGS (§13) ======================= -->
+<section class="page" id="p-settings"><div class="wrap">
+  <div class="page-head"><div><h1>Settings</h1><div class="sub">Changes save as you go — each field confirms on its own</div></div></div>
+
+  <div class="set-grid">
+    <div class="set-nav" id="setNav">
+      <button class="on" data-s="shopify">Shopify</button>
+      <button data-s="sheets">Google Sheets</button>
+      <button data-s="profile">Profile</button>
+      <button data-s="prefs">Display</button>
+      <button data-s="imports">Import history</button>
+      <button data-s="syncs">Sync history</button>
+    </div>
+
+    <div>
+      <div class="set-sec on" data-s="shopify">
+        <div class="panel">
+          <div class="p-hd"><h3>Shopify store</h3><div class="r"><span class="badge moss"><span class="dot moss"></span>Connected</span></div></div>
+          <div class="p-bd">
+            <div class="row2">
+              <div class="field"><label>Store URL</label><input class="inp" value="mystore.myshopify.com"><div class="help">Change this and Strata will re-verify before saving.</div></div>
+              <div class="field"><label>Admin API access token</label><input class="inp" type="password" value="shpat_EXAMPLETOKENFORTHEMOCKUP"><div class="help">Needs read_products and read_orders scopes.</div></div>
+            </div>
+            <div class="field" style="margin-bottom:0">
+              <label>Order lookback window</label>
+              <select class="inp" style="max-width:260px"><option>Last 30 days</option><option selected>Last 90 days</option><option>Last 180 days</option></select>
+              <div class="help">Longer windows make each sync slower.</div>
+            </div>
+          </div>
+          <div class="p-ft"><button class="btn pri" data-save>Save changes</button><span class="saved"><svg class="ic s" style="vertical-align:-2px"><use href="#i-check"/></svg> Saved</span><span class="spacer"></span><button class="btn dgr" onclick="openDialog('disconnect')">Disconnect store</button></div>
+        </div>
+      </div>
+
+      <div class="set-sec" data-s="sheets">
+        <div class="panel">
+          <div class="p-hd"><h3>Linked Google Sheets</h3><div class="r"><button class="btn sm" onclick="go('import')"><svg class="ic s"><use href="#i-plus"/></svg> Link a sheet</button></div></div>
+          <div class="p-bd">
+            <div class="linked">
+              <div class="li"><svg class="ic"><use href="#i-sheet"/></svg></div>
+              <div class="lt"><b>Master Inventory FY26 — tab: Live Stock</b><span>docs.google.com/spreadsheets/d/1x9F…kQ2 · last re-run 28 Jul, 09:12</span></div>
+              <button class="btn sm" onclick="toast('Re-syncing Master Inventory FY26…','slate')"><svg class="ic s"><use href="#i-refresh"/></svg> Re-sync</button>
+              <button class="btn sm dgr" onclick="openDialog('unlink')">Unlink</button>
+            </div>
+            <div class="linked">
+              <div class="li" style="background:var(--tint);color:var(--slate)"><svg class="ic"><use href="#i-sheet"/></svg></div>
+              <div class="lt"><b>Festive SKUs Q3 — tab: Sheet1</b><span>docs.google.com/spreadsheets/d/1bT7…mR8 · last re-run 21 Jul, 17:40</span></div>
+              <button class="btn sm" onclick="toast('Re-syncing Festive SKUs Q3…','slate')"><svg class="ic s"><use href="#i-refresh"/></svg> Re-sync</button>
+              <button class="btn sm dgr" onclick="openDialog('unlink')">Unlink</button>
+            </div>
+            <div class="notice" style="margin-top:6px"><svg class="ic s" style="margin-top:1px"><use href="#i-warn"/></svg><div>Unlinking keeps the inventory already imported. It only stops future re-runs.</div></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-sec" data-s="profile">
+        <div class="panel">
+          <div class="p-hd"><h3>Your profile</h3></div>
+          <div class="p-bd">
+            <div class="row2">
+              <div class="field"><label>Full name</label><input class="inp" value="Priya Mehta"></div>
+              <div class="field"><label>Email</label><input class="inp" value="priya@deodap.in"></div>
+            </div>
+            <div class="row2">
+              <div class="field"><label>Role</label><input class="inp" value="Inventory lead" disabled><div class="help">Roles are managed by your workspace admin.</div></div>
+              <div class="field"><label>Time zone</label><select class="inp"><option selected>Asia/Kolkata (IST)</option><option>UTC</option></select></div>
+            </div>
+          </div>
+          <div class="p-ft"><button class="btn pri" data-save>Save changes</button><span class="saved"><svg class="ic s" style="vertical-align:-2px"><use href="#i-check"/></svg> Saved</span></div>
+        </div>
+      </div>
+
+      <div class="set-sec" data-s="prefs">
+        <div class="panel">
+          <div class="p-hd"><h3>Display</h3></div>
+          <div class="p-bd">
+            <div class="kv"><div><div class="k" style="color:var(--ink);font-weight:600">Dark theme</div><div class="k" style="font-size:12px">Same palette, inverted for low-light warehouses.</div></div><button class="switch" data-toggle="theme"></button></div>
+            <div class="kv"><div><div class="k" style="color:var(--ink);font-weight:600">Compact tables by default</div><div class="k" style="font-size:12px">Applies to every table in Strata.</div></div><button class="switch" data-toggle="density"></button></div>
+            <div class="kv"><div><div class="k" style="color:var(--ink);font-weight:600">Alert me when stock runs out</div><div class="k" style="font-size:12px">One notification per sync, not per SKU.</div></div><button class="switch on" data-toggle="alerts"></button></div>
+            <div class="kv"><div><div class="k" style="color:var(--ink);font-weight:600">Low stock threshold</div><div class="k" style="font-size:12px">Units at or below this count are flagged low.</div></div><input class="inp num" value="10" style="width:80px;text-align:right"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-sec" data-s="imports">
+        <div class="panel">
+          <div class="p-hd"><h3>Import history</h3><div class="r"><button class="btn sm" onclick="go('import-history')">Open full page</button></div></div>
+          <div class="tbl-scroll" style="max-height:320px"><table class="tbl"><thead><tr><th>Source</th><th>Date</th><th class="n">Rows</th><th>Status</th></tr></thead><tbody id="setImpBody"></tbody></table></div>
+        </div>
+      </div>
+
+      <div class="set-sec" data-s="syncs">
+        <div class="panel">
+          <div class="p-hd"><h3>Sync history</h3><div class="r"><button class="btn sm" onclick="go('sync-history')">Open full page</button></div></div>
+          <div class="tbl-scroll" style="max-height:320px"><table class="tbl"><thead><tr><th>Date</th><th class="n">Products</th><th class="n">Orders</th><th>Result</th></tr></thead><tbody id="setSyncBody"></tbody></table></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
+    </main>
+  </div><!-- /.body -->
+</div><!-- /.app -->
+
+<!-- ======================= OVERLAYS (§5.7, §5.8) ======================= -->
+<div class="scrim" id="scrim"></div>
+
+<!-- resolution drawer (§10.2) -->
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawerTitle">
+  <div class="drawer-hd">
+    <div style="flex:1">
+      <span class="eyebrow">Resolve</span>
+      <h3 id="drawerTitle" style="font-size:16px;font-family:var(--f-mono);margin-top:3px">SKU-0104</h3>
+      <div class="hint" id="drawerSub" style="font-size:12.5px;color:var(--ink-60);margin-top:3px"></div>
+    </div>
+    <button class="icon-btn" onclick="closeOverlays()" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="drawer-bd" id="drawerBody"></div>
+  <div class="drawer-ft">
+    <button class="btn" onclick="closeOverlays()">Cancel</button>
+    <span class="spacer"></span>
+    <button class="btn sec" id="drawerSkip">Mark as missing</button>
+    <button class="btn pri" id="drawerLink">Link this SKU</button>
+  </div>
+</aside>
+
+<!-- generic dialog (§5.7) -->
+<div class="dialog" id="dialog" role="dialog" aria-modal="true">
+  <div class="dialog-hd" id="dialogHd"></div>
+  <div class="dialog-bd" id="dialogBd"></div>
+  <div class="dialog-ft" id="dialogFt"></div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+<div class="ctip" id="ctip"></div>
+<script>
+/* ============================================================
+   STRATA prototype — demo data
+   ============================================================ */
+const RAW = [
+ ["DD-1001","Stainless Steel Vacuum Flask 750ml","Kitchen",420,186,214,549],
+ ["DD-1002","Silicone Spatula Set (5 pc)","Kitchen",360,42,188,299],
+ ["DD-1003","Manual Vegetable Chopper 900ml","Kitchen",280,0,241,399],
+ ["DD-1004","Airtight Cereal Dispenser 1.5L","Kitchen",510,308,132,249],
+ ["DD-1005","Non-stick Roti Tawa 28cm","Kitchen",240,9,151,469],
+ ["DD-1006","Insulated Lunch Box 3 Container","Kitchen",300,124,167,599],
+ ["DD-1007","Steel Masala Dabba 7 Compartment","Kitchen",180,63,88,749],
+ ["DD-1008","Foldable Fruit & Veg Basket","Kitchen",220,0,96,329],
+ ["DD-2001","LED Fairy String Lights 10m","Home & decor",860,412,478,199],
+ ["DD-2002","Cotton Door Mat 60x40","Home & decor",340,7,204,349],
+ ["DD-2003","Macrame Wall Planter Hanger","Home & decor",150,88,41,279],
+ ["DD-2004","Ceramic Diffuser Bottle 200ml","Home & decor",190,110,66,399],
+ ["DD-2005","Foldable Laundry Basket 50L","Home & decor",410,236,158,449],
+ ["DD-2006","Shoe Rack 4 Tier Fabric","Home & decor",130,0,74,899],
+ ["DD-2007","Curtain Tie Back Set (4)","Home & decor",260,141,52,179],
+ ["DD-3001","Gel Pen Pack Blue (20)","Stationery",980,640,392,149],
+ ["DD-3002","A5 Ruled Notebook 200 pages","Stationery",720,288,266,129],
+ ["DD-3003","Sticky Note Cube 400 Sheets","Stationery",450,10,181,99],
+ ["DD-3004","Geometry Box Steel","Stationery",300,174,73,199],
+ ["DD-3005","Desk Organiser 5 Slot","Stationery",210,96,58,449],
+ ["DD-4001","Magnetic Building Tiles 42 pc","Toys",190,54,122,1299],
+ ["DD-4002","Remote Control Stunt Car","Toys",160,0,118,999],
+ ["DD-4003","Wooden Alphabet Puzzle Board","Toys",240,131,69,349],
+ ["DD-4004","Soft Plush Teddy 40cm","Toys",280,163,94,599],
+ ["DD-4005","Kids Water Gun 1.2L","Toys",520,8,311,249],
+ ["DD-5001","Rakhi Gift Box Assorted (6)","Festive",1200,742,684,399],
+ ["DD-5002","Terracotta Diya Set (12)","Festive",640,301,222,199],
+ ["DD-5003","Rangoli Stencil Kit","Festive",380,206,97,149],
+ ["DD-5004","Marble Finish Ganesh Idol 6in","Festive",120,0,81,1499],
+ ["DD-5005","Festive Toran Door Hanging","Festive",290,6,163,349],
+ ["DD-6001","Hair Straightening Comb","Personal care",240,112,138,699],
+ ["DD-6002","Portable Facial Steamer","Personal care",110,47,52,1199],
+ ["DD-6003","Manicure Kit 12 Tools","Personal care",320,178,84,449],
+ ["DD-6004","Beard Grooming Kit","Personal care",200,0,101,899],
+ ["DD-7001","Screwdriver Set 32-in-1","Tools",430,254,176,399],
+ ["DD-7002","Digital Kitchen Scale 10kg","Tools",280,9,143,649],
+ ["DD-7003","Measuring Tape 5m Steel","Tools",360,201,88,199],
+ ["DD-7004","Cordless Glue Gun","Tools",140,62,47,749]
+];
+const PRODUCTS = RAW.map(r=>{
+  const [sku,name,cat,imported,current,sales,price]=r;
+  return {sku,name,cat,imported,current,sales,price,revenue:sales*price,
+          status: current===0?"out":(current<=10?"low":"in")};
+});
+const TOTAL_SALES = PRODUCTS.reduce((a,p)=>a+p.sales,0);
+PRODUCTS.forEach(p=>p.pct = p.sales/TOTAL_SALES*100);
+const CATS = [...new Set(PRODUCTS.map(p=>p.cat))];
+
+const IMPORTS = [
+ ["Google Sheet","Master Inventory FY26","28 Jul 2026, 09:12",1238,2,"complete",true],
+ ["CSV upload","stock_july_w4.csv","26 Jul 2026, 18:40",980,0,"complete",false],
+ ["CSV URL","erp.deodap.in/export/stock.csv","24 Jul 2026, 06:00",1210,7,"complete",true],
+ ["Google Sheet","Festive SKUs Q3","21 Jul 2026, 17:40",412,1,"complete",true],
+ ["Excel upload","warehouse_ahd.xlsx","19 Jul 2026, 11:05",0,0,"failed",false],
+ ["CSV URL","erp.deodap.in/export/stock.csv","17 Jul 2026, 06:00",1204,3,"complete",true],
+ ["Excel URL","cdn.deodap.in/feeds/stock.xlsx","14 Jul 2026, 09:30",860,12,"partial",true],
+ ["Google Sheet","Master Inventory FY26","12 Jul 2026, 08:55",1190,0,"complete",true],
+ ["CSV upload","stock_july_w1.csv","07 Jul 2026, 16:22",1176,4,"complete",false],
+ ["Google Sheet","Master Inventory FY26","01 Jul 2026, 09:00",1150,0,"complete",true]
+];
+const SYNCS = [
+ ["28 Jul 2026, 09:40","Scheduled",340,1204,"success","12s"],
+ ["27 Jul 2026, 09:40","Scheduled",338,1190,"partial","18s"],
+ ["26 Jul 2026, 14:02","Manual",338,1174,"success","11s"],
+ ["26 Jul 2026, 09:40","Scheduled",336,1168,"success","10s"],
+ ["25 Jul 2026, 09:40","Scheduled",336,1152,"failed","—"],
+ ["24 Jul 2026, 09:40","Scheduled",334,1141,"success","13s"],
+ ["23 Jul 2026, 09:40","Scheduled",331,1120,"success","12s"],
+ ["22 Jul 2026, 09:40","Scheduled",329,1098,"success","14s"]
+];
+let NOTIFS = [
+ ["rust","42 SKUs need matching after the 28 Jul import","18 minutes ago","matching"],
+ ["amber","5 SKUs dropped to zero stock overnight","2 hours ago","dashboard"],
+ ["moss","Master Inventory FY26 re-run finished — 1,238 rows","6 hours ago","import-history"],
+ ["rust","Excel upload warehouse_ahd.xlsx failed: unreadable header row","19 Jul","import-history"]
+];
+
+const STATE = {page:"dashboard", empty:false, dashFilter:null, dashSort:{key:"revenue",dir:-1},
+  density:"comfortable", lens:"sales", matchTab:"review", repType:"Inventory",
+  syncStatus:"ok", connected:true, importMethod:null, importStage:0, theme:"light",
+  linked:new Set(), resolvedSkus:new Set(), counts:{review:42,missing:12,dupe:6,matched:1180}};
+
+/* ============================================================
+   utilities
+   ============================================================ */
+const $ = (s,r=document)=>r.querySelector(s);
+const $$ = (s,r=document)=>[...r.querySelectorAll(s)];
+const n = v => v.toLocaleString("en-IN");
+const inr = v => "₹" + (v>=10000000 ? (v/10000000).toFixed(2)+" Cr" : v>=100000 ? (v/100000).toFixed(2)+" L" : n(Math.round(v)));
+const pct = v => v.toFixed(1) + "%";
+const STATUS_LABEL = {in:["In stock","moss","s-ok"],low:["Low stock","amber","s-warn"],out:["Out of stock","rust","s-bad"]};
+
+function toast(msg, tone="slate", persist=false){
+  const t = document.createElement("div");
+  t.className="toast";
+  t.innerHTML = `<span class="tc" style="background:var(--${tone==='slate'?'slate':tone})"></span><span>${msg}</span>`;
+  const x = document.createElement("button");
+  x.className="icon-btn tx"; x.style.width="20px"; x.style.height="20px";
+  x.innerHTML='<svg class="ic s"><use href="#i-x"/></svg>';
+  x.onclick=()=>dismiss();
+  t.appendChild(x);
+  $("#toasts").appendChild(t);
+  let timer = persist?null:setTimeout(dismiss,5000);
+  function dismiss(){ clearTimeout(timer); t.classList.add("out"); setTimeout(()=>t.remove(),180); }
+  return t;
+}
+
+/* ============================================================
+   login (§6)
+   ============================================================ */
+$("#loginBtn").addEventListener("click", e=>{
+  const email = $("#lemail").value.trim();
+  if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)){
+    $("#lemail").classList.add("bad"); $("#lemailErr").style.display="flex"; return;
+  }
+  $("#lemail").classList.remove("bad"); $("#lemailErr").style.display="none";
+  const b = e.currentTarget;
+  b.disabled = true; b.innerHTML = '<span class="dot slate" style="background:#fff"></span> Signing in…';
+  $("#lemail").disabled = $("#lpass").disabled = true;
+  setTimeout(()=>{
+    $("#login").classList.add("gone");
+    setTimeout(()=>{ $("#login").style.display="none"; $("#app").classList.add("on"); boot(); },200);
+  },850);
+});
+$("#loginBad").addEventListener("click",()=>{
+  $("#loginErr").style.display = $("#loginErr").style.display==="none" ? "flex":"none";
+});
+function logout(){
+  closePops(); $("#app").classList.remove("on");
+  $("#login").style.display="grid";
+  requestAnimationFrame(()=>$("#login").classList.remove("gone"));
+  const b=$("#loginBtn"); b.disabled=false; b.textContent="Log in";
+  $("#lemail").disabled=$("#lpass").disabled=false;
+}
+
+/* ============================================================
+   navigation
+   ============================================================ */
+const PAGE_TITLES = {dashboard:"Dashboard","import":"Inventory import","import-history":"Import history",
+  shopify:"Shopify connection","sync-history":"Sync history",matching:"SKU matching",
+  analytics:"Analytics",reports:"Reports",settings:"Settings"};
+
+function go(page, sub){
+  STATE.page = page;
+  $$(".page").forEach(p=>p.classList.toggle("on", p.id === "p-"+page));
+  $$(".nav[data-go]").forEach(b=>b.classList.toggle("on", b.dataset.go===page));
+  document.title = PAGE_TITLES[page] + " · Strata";
+  $("#main").scrollTop = 0;
+  $("#side").classList.remove("open"); $("#scrim").classList.remove("on");
+  closePops();
+  if(page==="settings" && sub) setSection(sub);
+  if(page==="analytics") renderLens();
+  if(page==="reports") renderReport();
+  if(page==="matching") renderMatch();
+}
+$$(".nav[data-go]").forEach(b=>b.addEventListener("click",()=>go(b.dataset.go)));
+$("#collapseBtn").addEventListener("click",()=>$("#side").classList.toggle("mini"));
+$("#sideToggle").addEventListener("click",()=>{
+  const s=$("#side"); s.classList.toggle("open");
+  $("#scrim").classList.toggle("on", s.classList.contains("open"));
+});
+
+/* ============================================================
+   popovers + global search (§3)
+   ============================================================ */
+function closePops(){ $$(".pop").forEach(p=>p.classList.remove("on")); $("#gresults").classList.remove("on"); }
+function popToggle(btn, pop){
+  btn.addEventListener("click", e=>{
+    e.stopPropagation();
+    const open = pop.classList.contains("on");
+    closePops(); if(!open) pop.classList.add("on");
+  });
+}
+popToggle($("#syncPill"), $("#syncPop"));
+popToggle($("#bellBtn"), $("#notifPop"));
+popToggle($("#userBtn"), $("#userPop"));
+document.addEventListener("click", e=>{ if(!e.target.closest(".pop")) closePops(); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape"){ closePops(); closeOverlays(); } });
+
+const SEARCH_INDEX = [
+  ...PRODUCTS.map(p=>({g:"SKUs",t:p.sku,s:p.name,go:()=>{go("dashboard"); $("#dashSearch").value=p.sku; renderDash();}})),
+  {g:"Imports",t:"Master Inventory FY26",s:"Google Sheet · 28 Jul",go:()=>go("import-history")},
+  {g:"Imports",t:"stock_july_w4.csv",s:"CSV upload · 26 Jul",go:()=>go("import-history")},
+  {g:"Imports",t:"warehouse_ahd.xlsx",s:"Failed · 19 Jul",go:()=>go("import-history")},
+  {g:"Settings",t:"Shopify store",s:"Store URL, token, lookback",go:()=>go("settings","shopify")},
+  {g:"Settings",t:"Linked Google Sheets",s:"Re-sync or unlink sources",go:()=>go("settings","sheets")},
+  {g:"Settings",t:"Low stock threshold",s:"Display preferences",go:()=>go("settings","prefs")},
+  {g:"Pages",t:"SKU matching",s:"42 to review",go:()=>go("matching")},
+  {g:"Pages",t:"Analytics",s:"Sales, inventory health, SKU performance",go:()=>go("analytics")},
+  {g:"Pages",t:"Reports",s:"Export CSV, Excel, PDF",go:()=>go("reports")}
+];
+$("#gsearch").addEventListener("input", e=>{
+  const q = e.target.value.trim().toLowerCase();
+  const box = $("#gresults");
+  if(q.length<2){ box.classList.remove("on"); return; }
+  const hits = SEARCH_INDEX.filter(i=>(i.t+" "+i.s).toLowerCase().includes(q)).slice(0,9);
+  if(!hits.length){ box.innerHTML = `<div style="padding:16px;text-align:center;color:var(--ink-45);font-size:13px">No matches for “${q}”</div>`; box.classList.add("on"); return; }
+  let html="", grp="";
+  hits.forEach((h,i)=>{
+    if(h.g!==grp){ grp=h.g; html+=`<div class="res-grp">${grp}</div>`; }
+    html += `<button class="res-item" data-i="${SEARCH_INDEX.indexOf(h)}"><b>${h.t}</b><span style="color:var(--ink-45)">${h.s}</span><span class="rt">↵</span></button>`;
+  });
+  box.innerHTML = html; box.classList.add("on");
+  $$(".res-item",box).forEach(b=>b.addEventListener("click",()=>{ box.classList.remove("on"); $("#gsearch").value=""; SEARCH_INDEX[+b.dataset.i].go(); }));
+});
+
+/* notifications */
+function renderNotifs(){
+  $("#notifList").innerHTML = NOTIFS.length ? NOTIFS.map((x,i)=>
+    `<button class="notif-item" data-i="${i}"><span class="nb" style="background:var(--${x[0]})"></span>
+     <div><p>${x[1]}</p><time>${x[2]}</time></div></button>`).join("")
+    : `<div style="padding:26px;text-align:center;color:var(--ink-45);font-size:13px">You're all caught up.</div>`;
+  $$("#notifList .notif-item").forEach(b=>b.addEventListener("click",()=>{ closePops(); go(NOTIFS[+b.dataset.i][3]); }));
+  $("#bellDot").style.display = NOTIFS.length ? "block":"none";
+}
+function clearNotifs(){ NOTIFS=[]; renderNotifs(); }
+
+/* theme */
+function setTheme(t){
+  STATE.theme = t;
+  document.documentElement.dataset.theme = t;
+  $("#themeBtn").innerHTML = `<svg class="ic s"><use href="#i-${t==="dark"?"sun":"moon"}"/></svg> <span>${t==="dark"?"Light":"Dark"} theme</span>`;
+  $$('[data-toggle="theme"]').forEach(s=>s.classList.toggle("on", t==="dark"));
+}
+$("#themeBtn").addEventListener("click", e=>{ e.stopPropagation(); setTheme(STATE.theme==="dark"?"light":"dark"); });
+
+/* sync status pill (§3) */
+function setSync(status){
+  STATE.syncStatus = status;
+  const map = {ok:["moss","Synced"], busy:["slate","Syncing…"], fail:["rust","Sync failed"], check:["","Checking…"]};
+  const [tone,label] = map[status];
+  $("#syncPill").innerHTML = `<span class="dot ${tone}"></span><span class="sl">${label}</span><svg class="ic s" style="opacity:.5"><use href="#i-down"/></svg>`;
+  $("#shopSub").innerHTML = status==="fail"
+    ? `<span class="dot rust"></span> Connected · last sync failed`
+    : status==="busy" ? `<span class="dot slate"></span> Connected · syncing now`
+    : `<span class="dot moss"></span> Connected · synced just now`;
+}
+function runSync(onPage){
+  if(STATE.syncStatus==="busy") return;
+  setSync("busy"); $("#syncErrPanel").style.display="none";
+  const p = $("#syncProgress"); if(onPage) p.style.display="block";
+  let a=0,b=0;
+  const t = setInterval(()=>{
+    if(a<100){ a=Math.min(100,a+9); }
+    else if(b<100){ b=Math.min(100,b+11); }
+    $("#syncB1").style.width=a+"%"; $("#syncP1").textContent=a+"%";
+    $("#syncB2").style.width=b+"%"; $("#syncP2").textContent=b+"%";
+    if(a>=100&&b>=100){
+      clearInterval(t); setSync("ok");
+      setTimeout(()=>{ p.style.display="none"; a=b=0; $("#syncB1").style.width="0"; $("#syncB2").style.width="0"; },700);
+      $("#freshness").textContent="Synced just now";
+      $("#syncPopTime").textContent="Last sync just now · 12s";
+      toast("Sync complete — 340 products, 1,204 orders","moss");
+    }
+  },160);
+}
+function failSync(){
+  setSync("busy");
+  setTimeout(()=>{
+    setSync("fail");
+    $("#syncErrPanel").style.display="block";
+    $("#syncProgress").style.display="none";
+    toast("Sync failed — Shopify is rate limiting requests","rust",true);
+  },900);
+}
+</script>
+<script>
+/* ============================================================
+   chart library — hand-drawn SVG, themed with CSS variables (§16)
+   ============================================================ */
+const TIP = () => $("#ctip");
+function showTip(e, html){
+  const t = TIP(); t.innerHTML = html; t.classList.add("on");
+  t.style.left = e.clientX + "px"; t.style.top = e.clientY + "px";
+}
+function hideTip(){ TIP().classList.remove("on"); }
+const FRESH = 'as of last sync, 12 min ago';
+
+function svgEl(vb, extra=""){ return `<svg viewBox="${vb}" preserveAspectRatio="xMidYMid meet" ${extra}>`; }
+
+/* ---- line chart: max 2 series (§16) ---- */
+function lineChart(host, {labels, series, fmt=n, unit=""}){
+  const W=720,H=232,L=54,R=14,T=16,B=30;
+  const iw=W-L-R, ih=H-T-B;
+  const all = series.flatMap(s=>s.vals);
+  const max = Math.max(...all)*1.12, min = 0;
+  const x = i => L + (labels.length===1?iw/2:iw*i/(labels.length-1));
+  const y = v => T + ih - (v-min)/(max-min)*ih;
+  let g = "";
+  for(let i=0;i<=4;i++){
+    const yy = T + ih*i/4, val = max - (max-min)*i/4;
+    g += `<line x1="${L}" y1="${yy.toFixed(1)}" x2="${W-R}" y2="${yy.toFixed(1)}" stroke="var(--line)" stroke-width="1"/>`;
+    g += `<text x="${L-9}" y="${yy+4}" text-anchor="end" font-size="10.5" font-family="var(--f-mono)" fill="var(--ink-45)">${fmt(Math.round(val))}</text>`;
+  }
+  const step = Math.ceil(labels.length/7);
+  labels.forEach((lb,i)=>{ if(i%step===0||i===labels.length-1)
+    g += `<text x="${x(i)}" y="${H-9}" text-anchor="middle" font-size="10.5" font-family="var(--f-mono)" fill="var(--ink-45)">${lb}</text>`; });
+
+  series.forEach((s,si)=>{
+    const d = s.vals.map((v,i)=>`${i?"L":"M"}${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+    if(s.fill){
+      g += `<path d="${d} L${x(s.vals.length-1).toFixed(1)} ${T+ih} L${x(0)} ${T+ih} Z" fill="${s.color}" opacity=".09"/>`;
+    }
+    g += `<path d="${d}" fill="none" stroke="${s.color}" stroke-width="${s.dashed?1.5:2}" ${s.dashed?'stroke-dasharray="4 4"':""} stroke-linejoin="round" stroke-linecap="round"/>`;
+    s.vals.forEach((v,i)=>{ g += `<circle class="pt pt${si}" data-i="${i}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="0" fill="var(--paper)" stroke="${s.color}" stroke-width="2"/>`; });
+  });
+  labels.forEach((lb,i)=>{
+    const w = iw/labels.length;
+    g += `<rect class="hit" data-i="${i}" x="${(x(i)-w/2).toFixed(1)}" y="${T}" width="${w.toFixed(1)}" height="${ih}" fill="transparent"/>`;
+  });
+  host.innerHTML = svgEl(`0 0 ${W} ${H}`) + g + "</svg>";
+  const svg = host.querySelector("svg");
+  $$(".hit", svg).forEach(r=>{
+    r.addEventListener("mousemove", e=>{
+      const i = +r.dataset.i;
+      $$(".pt",svg).forEach(p=>p.setAttribute("r", p.dataset.i===String(i)?"3.5":"0"));
+      showTip(e, `<b>${labels[i]}</b>` + series.map(s=>`<div style="margin-top:3px">${s.name}: <b>${fmt(s.vals[i])}${unit}</b></div>`).join("") + `<small>${FRESH}</small>`);
+    });
+    r.addEventListener("mouseleave", ()=>{ hideTip(); $$(".pt",svg).forEach(p=>p.setAttribute("r","0")); });
+  });
+}
+
+/* ---- horizontal bar ---- */
+function hbarChart(host, {rows, fmt=n, color="var(--slate)"}){
+  const W=720, rowH=30, LW=228, RW=68, H=rows.length*rowH+16;
+  const max = Math.max(...rows.map(r=>r.val));
+  let g="";
+  rows.forEach((r,i)=>{
+    const y = 8+i*rowH, bw = (W-LW-RW)*(r.val/max);
+    const label = r.label.length>30 ? r.label.slice(0,29)+"…" : r.label;
+    g += `<text x="0" y="${y+16}" font-size="12" fill="var(--ink)">${label}</text>`;
+    g += `<rect x="${LW}" y="${y+5}" width="${(W-LW-RW)}" height="15" rx="2" fill="var(--line)" opacity=".45"/>`;
+    g += `<rect class="hb" data-i="${i}" x="${LW}" y="${y+5}" width="${bw.toFixed(1)}" height="15" rx="2" fill="${color}"/>`;
+    g += `<text x="${W}" y="${y+16}" text-anchor="end" font-size="11.5" font-family="var(--f-mono)" fill="var(--ink-60)">${fmt(r.val)}</text>`;
+  });
+  host.innerHTML = svgEl(`0 0 ${W} ${H}`) + g + "</svg>";
+  $$(".hb", host).forEach(b=>{
+    b.addEventListener("mousemove", e=>{ const r=rows[+b.dataset.i];
+      showTip(e, `<b>${r.label}</b><div style="margin-top:3px">${r.note||"Units sold"}: <b>${fmt(r.val)}</b></div><small>${FRESH}</small>`); });
+    b.addEventListener("mouseleave", hideTip);
+  });
+}
+
+/* ---- donut ---- */
+const CAT_COLORS = ["var(--slate)","var(--moss)","var(--amber)","var(--clay)","var(--rust)","var(--ink-45)","var(--line)"];
+function donutChart(host, {slices, centerVal, centerLbl}){
+  const W=720,H=232, cx=W/2, cy=H/2, r=72, sw=26;
+  const total = slices.reduce((a,s)=>a+s.val,0);
+  const C = 2*Math.PI*r;
+  let off = 0, g = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="var(--line)" stroke-width="${sw}" opacity=".4"/>`;
+  slices.forEach((s,i)=>{
+    const frac = s.val/total, len = C*frac;
+    g += `<circle class="dn" data-i="${i}" cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${s.color}" stroke-width="${sw}"
+      stroke-dasharray="${(len-2).toFixed(1)} ${(C-len+2).toFixed(1)}" stroke-dashoffset="${(-off).toFixed(1)}"
+      transform="rotate(-90 ${cx} ${cy})" style="transition:stroke-width 140ms ease"/>`;
+    off += len;
+  });
+  g += `<text x="${cx}" y="${cy-2}" text-anchor="middle" font-size="24" font-family="var(--f-mono)" font-weight="600" fill="var(--ink)">${centerVal}</text>`;
+  g += `<text x="${cx}" y="${cy+18}" text-anchor="middle" font-size="10.5" letter-spacing="1.2" fill="var(--ink-45)">${centerLbl}</text>`;
+  host.innerHTML = svgEl(`0 0 ${W} ${H}`) + g + "</svg>";
+  $$(".dn", host).forEach(c=>{
+    c.addEventListener("mousemove", e=>{ const s=slices[+c.dataset.i];
+      c.setAttribute("stroke-width", sw+5);
+      showTip(e, `<b>${s.label}</b><div style="margin-top:3px">${n(s.val)} units · <b>${pct(s.val/total*100)}</b></div><small>${FRESH}</small>`); });
+    c.addEventListener("mouseleave", ()=>{ c.setAttribute("stroke-width", sw); hideTip(); });
+  });
+}
+
+/* ---- 100% stacked bars: inventory status ---- */
+function stackChart(host, {groups}){
+  const W=720, rowH=38, LW=132, RW=150, H=groups.length*rowH+14;
+  let g="";
+  groups.forEach((gr,i)=>{
+    const y = 7+i*rowH, total = gr.parts.reduce((a,p)=>a+p.val,0), bw = W-LW-RW;
+    let x = LW;
+    g += `<text x="0" y="${y+20}" font-size="12" fill="var(--ink)">${gr.label}</text>`;
+    gr.parts.forEach((p,pi)=>{
+      const w = Math.max(p.val? 4:0, bw*p.val/total);
+      g += `<rect class="st" data-g="${i}" data-p="${pi}" x="${x.toFixed(1)}" y="${y+8}" width="${w.toFixed(1)}" height="17" fill="${p.color}" opacity=".85"/>`;
+      x += w;
+    });
+    const [inS,lowS,outS] = gr.parts.map(p=>p.val);
+    g += `<text x="${W}" y="${y+21}" text-anchor="end" font-size="11" font-family="var(--f-mono)" fill="var(--ink-45)">${inS} in · ${lowS} low · ${outS} out</text>`;
+  });
+  host.innerHTML = svgEl(`0 0 ${W} ${H}`) + g + "</svg>";
+  $$(".st", host).forEach(rect=>{
+    rect.addEventListener("mousemove", e=>{ const gr=groups[+rect.dataset.g], p=gr.parts[+rect.dataset.p];
+      const total = gr.parts.reduce((a,q)=>a+q.val,0);
+      showTip(e, `<b>${gr.label} — ${p.label}</b><div style="margin-top:3px"><b>${p.val}</b> SKUs · ${pct(p.val/total*100)} of category</div><small>from the 28 Jul import</small>`); });
+    rect.addEventListener("mouseleave", hideTip);
+  });
+}
+
+/* ============================================================
+   dashboard data + rendering (§7)
+   ============================================================ */
+const DAY = ["22 Jul","23 Jul","24 Jul","25 Jul","26 Jul","27 Jul","28 Jul"];
+function seriesFor(range, base, spread){
+  const len = range==="7D"?7:range==="30D"?15:18;
+  const out=[]; let v=base;
+  for(let i=0;i<len;i++){ v = Math.max(base*.55, v + (Math.sin(i*1.7)*spread) + (i%3===0?spread*.6:-spread*.3)); out.push(Math.round(v)); }
+  return out;
+}
+function labelsFor(range){
+  if(range==="7D") return DAY;
+  if(range==="30D") return ["28 Jun","30","2 Jul","4","6","8","10","12","14","16","18","20","22","25","28"];
+  return ["1 May","8","15","22","29","5 Jun","12","19","26","3 Jul","6","9","12","15","18","21","24","28"];
+}
+const RANGES = {salesTrend:"7D", revTrend:"7D", topSku:"30D", share:"30D"};
+
+const INV_BY_CAT = [
+  ["Kitchen",258,9,3],["Home & decor",206,7,2],["Stationery",188,5,1],
+  ["Toys",146,4,2],["Festive",216,6,2],["Personal care",100,4,1],["Tools",76,3,1]
+];
+
+const KPIS = [
+  {k:"all",   lbl:"Total SKUs",      val:"1,240",  d:"+62 this month", t:"up"},
+  {k:"qty",   lbl:"Inventory qty",   val:"52,300", d:"units on hand", t:""},
+  {k:"sales", lbl:"Shopify sales",   val:"14,900", d:"+8.4% vs prior 30d", t:"up"},
+  {k:"pct",   lbl:"Sell-through",    val:"28.6%",  d:"−1.2 pts vs prior", t:"dn"},
+  {k:"rev",   lbl:"Revenue",         val:"₹84.2 L",d:"+11.9% vs prior 30d", t:"up"},
+  {k:"low",   lbl:"Low stock",       val:"38",     d:"≤10 units left", t:"", tone:"warn"},
+  {k:"out",   lbl:"Out of stock",    val:"12",     d:"needs restocking", t:"", tone:"bad"}
+];
+
+function renderKpis(){
+  $("#kpis").innerHTML = KPIS.map(c=>`
+    <button class="kpi ${c.tone||""} ${STATE.dashFilter===c.k?"on":""}" data-k="${c.k}">
+      <span class="kpi-lbl">${c.lbl}</span>
+      <span class="kpi-val">${c.val}</span>
+      <span class="kpi-delta ${c.t}">${c.d}</span>
+    </button>`).join("");
+  $$("#kpis .kpi").forEach(b=>b.addEventListener("click",()=>{
+    const k = b.dataset.k;
+    const SORTS = {all:["sku",1], qty:["current",-1], pct:["pct",-1], rev:["revenue",-1]};
+    if(SORTS[k]){
+      STATE.dashFilter = null;
+      STATE.dashSort = {key:SORTS[k][0], dir:SORTS[k][1]};
+    } else {
+      STATE.dashFilter = STATE.dashFilter===k ? null : k;
+    }
+    markSort(); renderKpis(); renderDash();
+    $("#dashTable").closest(".panel").scrollIntoView({behavior:"smooth",block:"start"});
+  }));
+}
+function markSort(){
+  $$("#dashTable thead th[data-sort]").forEach(th=>{
+    const on = th.dataset.sort===STATE.dashSort.key;
+    th.classList.toggle("sorted", on);
+    th.querySelector(".ar").textContent = on ? (STATE.dashSort.dir===1?"▲":"▼") : "▲";
+  });
+}
+
+function renderCharts(){
+  const r1 = RANGES.salesTrend, r2 = RANGES.revTrend;
+  lineChart($("#c-sales"), {labels:labelsFor(r1), series:[
+    {name:"Units sold", color:"var(--slate)", vals:seriesFor(r1,540,90), fill:true},
+    {name:"Prior period", color:"var(--moss)", vals:seriesFor(r1,470,70), dashed:true}]});
+  lineChart($("#c-rev"), {labels:labelsFor(r2), fmt:v=>inr(v), unit:"", series:[
+    {name:"Revenue", color:"var(--clay)", vals:seriesFor(r2,286000,42000), fill:true},
+    {name:"Prior period", color:"var(--ink-45)", vals:seriesFor(r2,251000,31000), dashed:true}]});
+
+  const top = [...PRODUCTS].sort((a,b)=>b.sales-a.sales).slice(0,8).map(p=>({label:p.name,val:p.sales}));
+  hbarChart($("#c-top"), {rows:top});
+
+  const byCat = CATS.map((c,i)=>({label:c, val:PRODUCTS.filter(p=>p.cat===c).reduce((a,p)=>a+p.sales,0), color:CAT_COLORS[i]}))
+                    .sort((a,b)=>b.val-a.val);
+  donutChart($("#c-share"), {slices:byCat, centerVal:"14,900", centerLbl:"UNITS SOLD"});
+  $("#c-share-legend").innerHTML = byCat.map(s=>`<span><i style="background:${s.color}"></i>${s.label}</span>`).join("");
+
+  stackChart($("#c-inv"), {groups: INV_BY_CAT.map(([label,i,l,o])=>({label, parts:[
+    {label:"In stock",val:i,color:"var(--moss)"},{label:"Low",val:l,color:"var(--amber)"},{label:"Out",val:o,color:"var(--rust)"}]}))});
+}
+$$('[data-range]').forEach(seg=>{
+  $$("button",seg).forEach(b=>b.addEventListener("click",()=>{
+    $$("button",seg).forEach(x=>x.classList.remove("on")); b.classList.add("on");
+    RANGES[seg.dataset.range] = b.textContent;
+    renderCharts();
+  }));
+});
+
+function filteredProducts(){
+  let rows = [...PRODUCTS];
+  const f = STATE.dashFilter;
+  if(f==="low") rows = rows.filter(p=>p.status==="low");
+  if(f==="out") rows = rows.filter(p=>p.status==="out");
+  if(f==="sales") rows = rows.sort((a,b)=>b.sales-a.sales).slice(0,15);
+  const q = ($("#dashSearch").value||"").trim().toLowerCase();
+  if(q) rows = rows.filter(p=>(p.sku+" "+p.name+" "+p.cat).toLowerCase().includes(q));
+  const {key,dir} = STATE.dashSort;
+  rows.sort((a,b)=>{
+    const va = key==="status"? ["in","low","out"].indexOf(a.status) : a[key];
+    const vb = key==="status"? ["in","low","out"].indexOf(b.status) : b[key];
+    return typeof va==="string" ? va.localeCompare(vb)*dir : (va-vb)*dir;
+  });
+  return rows;
+}
+function renderDash(){
+  const rows = filteredProducts();
+  $("#dashBody").innerHTML = rows.map(p=>{
+    const [lbl,tone,cls] = STATUS_LABEL[p.status];
+    return `<tr class="${cls}">
+      <td class="hero" data-l="SKU"><span class="sku">${p.sku}</span></td>
+      <td data-l="Product"><div class="pname" title="${p.name}">${p.name}</div></td>
+      <td class="n" data-l="Imported">${n(p.imported)}</td>
+      <td class="n" data-l="On hand">${n(p.current)}</td>
+      <td class="n" data-l="Sold">${n(p.sales)}</td>
+      <td class="n" data-l="Sales %">${p.pct.toFixed(2)}%</td>
+      <td class="n" data-l="Revenue">${inr(p.revenue)}</td>
+      <td data-l="Status"><span class="badge ${tone}"><span class="dot ${tone}"></span>${lbl}</span></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="8"><div class="empty"><div class="ei"><svg class="ic l"><use href="#i-search"/></svg></div><h3>No SKUs match</h3><p>Try a different search term or clear the active filter.</p><div class="acts"><button class="btn sec" onclick="clearDashFilter()">Clear filter</button></div></div></td></tr>`;
+  const chipMap = {low:"Low stock only",out:"Out of stock only",sales:"Top 15 by units sold"};
+  const chip = $("#filterChip");
+  if(STATE.dashFilter && chipMap[STATE.dashFilter]){ chip.style.display="inline-flex"; chip.innerHTML = `<svg class="ic s"><use href="#i-filter"/></svg>${chipMap[STATE.dashFilter]}`; }
+  else chip.style.display="none";
+  $("#clearFilter").style.display = STATE.dashFilter ? "inline-flex":"none";
+  const totals = {low:38,out:12};
+  $("#dashCount").textContent = STATE.dashFilter && totals[STATE.dashFilter]
+    ? `Showing ${rows.length} of ${totals[STATE.dashFilter]} ${STATE.dashFilter==="low"?"low-stock":"out-of-stock"} SKUs`
+    : `Showing ${rows.length} of 1,240 SKUs`;
+}
+function clearDashFilter(){ STATE.dashFilter=null; $("#dashSearch").value=""; renderKpis(); renderDash(); }
+$("#clearFilter").addEventListener("click", clearDashFilter);
+$("#dashSearch").addEventListener("input", renderDash);
+$$("#dashTable thead th[data-sort]").forEach(th=>th.addEventListener("click",()=>{
+  const k = th.dataset.sort;
+  STATE.dashSort = {key:k, dir: STATE.dashSort.key===k ? -STATE.dashSort.dir : -1};
+  markSort();
+  renderDash();
+}));
+$$("#densityToggle button").forEach((b,i)=>b.addEventListener("click",()=>{
+  $$("#densityToggle button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+  STATE.density = i? "compact":"comfortable";
+  $$("table.tbl").forEach(t=>t.classList.toggle("compact", i===1));
+  $$('[data-toggle="density"]').forEach(s=>s.classList.toggle("on", i===1));
+}));
+
+/* empty + error states (§7.4) */
+function setEmpty(on){
+  STATE.empty = on;
+  $("#dashEmpty").style.display = on?"block":"none";
+  $("#dashContent").style.display = on?"none":"block";
+  $("#emptyLbl").textContent = on ? "Show populated dashboard" : "Show first-run empty state";
+  if(on) go("dashboard");
+}
+function breakAnalytics(){
+  go("dashboard");
+  $("#dashErr").style.display="block";
+  $("#dashCharts").style.display="none";
+  toast("Analytics engine unreachable","rust",true);
+}
+function fixAnalytics(){
+  $("#dashErr").style.display="none";
+  $("#dashCharts").style.display="block";
+  renderCharts();
+  toast("Analytics recalculated","moss");
+}
+
+/* first-load skeletons */
+function dashSkeleton(){
+  $("#kpis").innerHTML = Array(7).fill(0).map(()=>`<div class="kpi"><div class="sk" style="height:11px;width:60%"></div><div class="sk" style="height:20px;width:80%;margin-top:10px"></div><div class="sk" style="height:9px;width:50%;margin-top:8px"></div></div>`).join("");
+  ["#c-sales","#c-rev","#c-top","#c-share","#c-inv"].forEach(s=>{ $(s).innerHTML = `<div class="sk" style="height:200px;margin:8px"></div>`; });
+  $("#dashBody").innerHTML = Array(7).fill(0).map(()=>`<tr><td colspan="8" style="padding:9px 12px"><div class="sk" style="height:15px"></div></td></tr>`).join("");
+}
+</script>
+<script>
+/* ============================================================
+   INVENTORY IMPORT (§8)
+   ============================================================ */
+const METHODS = {
+  csv:   {title:"Upload a CSV file", hint:"Supports .csv up to 25 MB"},
+  excel: {title:"Upload an Excel file", hint:"Supports .xlsx and .xls up to 25 MB"},
+  csvurl:{title:"Fetch from a CSV URL", hint:"The link must be publicly reachable"},
+  excelurl:{title:"Fetch from an Excel URL", hint:"The link must be publicly reachable"},
+  gsheet:{title:"Connect a Google Sheet", hint:"Stays linked — re-run any time from Settings"}
+};
+const STEP_LABELS = ["Source","Map columns","Preview","Import"];
+
+function stepsHTML(active){
+  return STEP_LABELS.map((s,i)=>
+    `<div class="step ${i===active?"on":i<active?"done":""}"><span class="sn">${i<active?"✓":i+1}</span>${s}</div>`
+  ).join('<div class="step-line"></div>');
+}
+function impGo(stage){
+  STATE.importStage = stage;
+  [0,1,2,3,4].forEach(s=>$("#impStage"+s).style.display = s===stage?"block":"none");
+  if(stage===1){ $("#impSteps").innerHTML = stepsHTML(1); renderMapRows(); }
+  if(stage===2){ $("#impSteps2").innerHTML = stepsHTML(2); renderPreview(); }
+  $("#main").scrollTop = 0;
+}
+function resetImport(){
+  STATE.importMethod=null;
+  $$(".method").forEach(m=>m.classList.remove("on"));
+  $("#impInput").style.display="none";
+  impGo(0);
+}
+$$(".method").forEach(m=>m.addEventListener("click",()=>{
+  $$(".method").forEach(x=>x.classList.remove("on"));
+  m.classList.add("on");
+  STATE.importMethod = m.dataset.m;
+  showMethodPanel(m.dataset.m);
+}));
+
+function showMethodPanel(m){
+  const meta = METHODS[m];
+  $("#impInput").style.display="block";
+  $("#impInputTitle").textContent = meta.title;
+  $("#impInputHint").textContent = meta.hint;
+  $("#impContinue").disabled = true;
+  const body = $("#impInputBody");
+
+  if(m==="csv"||m==="excel"){
+    body.innerHTML = `
+      <div class="drop" id="drop">
+        <svg class="ic l" style="color:var(--slate);margin-bottom:8px"><use href="#i-cloud"/></svg>
+        <h4>Drop your file here, or <button class="btn txt" id="browse" style="font-size:14px;font-weight:600">browse</button></h4>
+        <p>Supports ${m==="csv"?".csv":".xlsx, .xls"} up to 25 MB</p>
+      </div>
+      <div id="fileState" style="display:none;margin-top:14px"></div>
+      <div class="notice" style="margin-top:14px"><svg class="ic s" style="margin-top:1px"><use href="#i-warn"/></svg>
+        <div>A one-time upload can't be re-run later. Use a Google Sheet or URL if this file changes often.</div></div>`;
+    const drop = $("#drop");
+    ["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("over")}));
+    ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("over")}));
+    drop.addEventListener("drop",()=>fakeUpload(m));
+    $("#browse").addEventListener("click",()=>fakeUpload(m));
+  }
+  else if(m==="csvurl"||m==="excelurl"){
+    body.innerHTML = `
+      <div class="field" style="margin-bottom:0">
+        <label for="fetchUrl">File URL <span class="req">*</span></label>
+        <div style="display:flex;gap:8px">
+          <input class="inp" id="fetchUrl" value="https://erp.deodap.in/export/stock.${m==="csvurl"?"csv":"xlsx"}">
+          <button class="btn sec" id="fetchBtn" style="flex:0 0 auto">Fetch</button>
+        </div>
+        <div class="help">We check the link is public and reachable before importing.</div>
+        <div class="err-msg" id="fetchErr" style="display:none"><svg class="ic s"><use href="#i-warn"/></svg> We couldn't reach that URL. Make sure it's public and accessible.</div>
+      </div>
+      <div id="fetchOk" style="display:none;margin-top:14px"></div>`;
+    $("#fetchBtn").addEventListener("click",()=>{
+      const url = $("#fetchUrl").value.trim();
+      const bad = !/^https?:\/\/.+\..+/.test(url) || url.includes("private");
+      $("#fetchErr").style.display = bad?"flex":"none";
+      $("#fetchUrl").classList.toggle("bad", bad);
+      if(bad){ $("#fetchOk").style.display="none"; $("#impContinue").disabled=true; return; }
+      $("#fetchOk").style.display="block";
+      $("#fetchOk").innerHTML = `<div class="filechip"><div class="fi"><svg class="ic s"><use href="#i-check"/></svg></div>
+        <div style="flex:1"><b style="font-size:13px">stock.${m==="csvurl"?"csv":"xlsx"}</b>
+        <div style="font-size:11.5px;color:var(--ink-45)">Reachable · 1,240 rows · 6 columns · 412 KB</div></div>
+        <span class="badge moss">Re-runnable</span></div>`;
+      $("#impContinue").disabled=false;
+      toast("URL verified — 1,240 rows found","moss");
+    });
+  }
+  else {
+    body.innerHTML = `
+      <div class="field">
+        <label for="gsUrl">Google Sheet link <span class="req">*</span></label>
+        <div style="display:flex;gap:8px">
+          <input class="inp" id="gsUrl" value="https://docs.google.com/spreadsheets/d/1x9FqK…kQ2/edit">
+          <button class="btn sec" id="gsBtn" style="flex:0 0 auto">Connect</button>
+        </div>
+        <div class="help">You'll be asked to grant read-only access to this sheet.</div>
+      </div>
+      <div id="gsSteps"></div>`;
+    $("#gsBtn").addEventListener("click", gsConnect);
+  }
+}
+function fakeUpload(m){
+  const name = m==="csv" ? "master_stock_28jul.csv" : "master_stock_28jul.xlsx";
+  const fs = $("#fileState"); $("#drop").style.display="none"; fs.style.display="block";
+  fs.innerHTML = `<div class="filechip"><div class="fi"><svg class="ic s"><use href="#i-file"/></svg></div>
+      <div style="flex:1"><b style="font-size:13px">${name}</b><div style="font-size:11.5px;color:var(--ink-45)" id="upNote">0 KB of 412 KB</div></div>
+      <button class="btn sm" id="upCancel">Remove</button></div>
+    <div class="bar" style="margin-top:10px"><i id="upBar"></i></div>`;
+  $("#upCancel").addEventListener("click",()=>{ $("#drop").style.display="block"; fs.style.display="none"; $("#impContinue").disabled=true; });
+  let v=0; const t=setInterval(()=>{
+    v=Math.min(100,v+12); $("#upBar").style.width=v+"%";
+    $("#upNote").textContent = Math.round(412*v/100)+" KB of 412 KB";
+    if(v>=100){ clearInterval(t);
+      $("#upBar").parentElement.classList.add("moss");
+      $("#upNote").innerHTML = `<span style="color:var(--moss)">Uploaded</span> · 1,240 rows · 6 columns`;
+      $(".filechip .fi").innerHTML = '<svg class="ic s"><use href="#i-check"/></svg>';
+      $(".filechip .fi").style.background = "color-mix(in srgb,var(--moss) 14%,transparent)";
+      $("#impContinue").disabled=false;
+    }
+  },110);
+}
+function gsConnect(){
+  const box = $("#gsSteps");
+  box.innerHTML = `<div class="notice"><span class="dot slate" style="margin-top:5px"></span><div>Opening Google authorization…</div></div>`;
+  setTimeout(()=>{
+    box.innerHTML = `
+      <div class="notice" style="background:color-mix(in srgb,var(--moss) 9%,transparent);border-color:color-mix(in srgb,var(--moss) 26%,transparent)">
+        <svg class="ic s" style="color:var(--moss);margin-top:1px"><use href="#i-check"/></svg>
+        <div>Access granted to <b>Master Inventory FY26</b> as priya@deodap.in (read only)</div>
+      </div>
+      <div class="field" style="margin-top:16px;max-width:320px">
+        <label for="gsTab">Sheet tab</label>
+        <select class="inp" id="gsTab"><option>Live Stock</option><option>Archive 2025</option><option>Vendor Master</option></select>
+        <div class="help">This sheet has 3 tabs — pick the one holding current stock.</div>
+      </div>
+      <div class="panel" style="margin-top:4px">
+        <div class="p-hd"><h3>First rows</h3><span class="hint">Live from the sheet</span></div>
+        <div class="tbl-scroll"><table class="tbl"><thead><tr><th>Item Code</th><th>Product Title</th><th class="n">Stock Count</th><th class="n">MRP</th><th>Warehouse</th></tr></thead>
+        <tbody>${PRODUCTS.slice(0,4).map(p=>`<tr><td data-l="Item code"><span class="sku">${p.sku}</span></td><td data-l="Title">${p.name}</td><td class="n" data-l="Stock">${p.current}</td><td class="n" data-l="MRP">${p.price}</td><td data-l="Warehouse">Ahmedabad</td></tr>`).join("")}</tbody></table></div>
+      </div>`;
+    $("#impContinue").disabled=false;
+    toast("Google Sheet linked — it can be re-run any time","moss");
+  },900);
+}
+$("#impContinue").addEventListener("click",()=>impGo(1));
+
+const MAP_ROWS = [
+  ["Item Code","sku","SKU","DD-1001, DD-1002, DD-1003…"],
+  ["Product Title","name","Product name","Stainless Steel Vacuum Flask 750ml…"],
+  ["Stock Count","qty","Quantity","186, 42, 0, 308…"],
+  ["MRP","price","Price","549, 299, 399…"],
+  ["Warehouse","ignore","Ignore","Ahmedabad, Surat, Delhi…"],
+  ["Last Updated","ignore","Ignore","28-07-2026, 27-07-2026…"]
+];
+const MAP_TARGETS = [["sku","SKU"],["name","Product name"],["qty","Quantity"],["price","Price"],["category","Category"],["ignore","Ignore this column"]];
+function renderMapRows(){
+  $("#mapRows").innerHTML = MAP_ROWS.map(([col,val,,prev])=>`
+    <div class="map-row">
+      <div><span class="sku">"${col}"</span></div>
+      <div class="arrow">→</div>
+      <div><select class="inp sm">${MAP_TARGETS.map(([v,l])=>`<option value="${v}" ${v===val?"selected":""}>${l}</option>`).join("")}</select></div>
+      <div class="prev">${prev}</div>
+    </div>`).join("");
+}
+const PREVIEW_ROWS = [
+  ["DD-1001","Stainless Steel Vacuum Flask 750ml",186,""],
+  ["DD-1002","Silicone Spatula Set (5 pc)",42,""],
+  ["","Manual Vegetable Chopper 900ml",241,"missing"],
+  ["DD-1004","Airtight Cereal Dispenser 1.5L",308,""],
+  ["DD-1005","Non-stick Roti Tawa 28cm",9,""],
+  ["DD-2002","Cotton Door Mat 60x40",7,"dupe"],
+  ["DD-2002","Cotton Door Mat 60x40",0,"dupe"],
+  ["DD-3001","Gel Pen Pack Blue (20)",640,""],
+  ["","Desk Organiser 5 Slot",96,"missing"],
+  ["DD-5001","Rakhi Gift Box Assorted (6)",742,""],
+  ["DD-5004","Marble Finish Ganesh Idol 6in",0,""],
+  ["","Cordless Glue Gun",62,"missing"]
+];
+function renderPreview(){
+  const only = $("#flagOnly").checked;
+  const rows = only ? PREVIEW_ROWS.filter(r=>r[3]) : PREVIEW_ROWS;
+  $("#previewBody").innerHTML = rows.map(([sku,name,qty,flag])=>{
+    const cls = flag==="missing"?"s-bad":flag==="dupe"?"s-warn":"s-ok";
+    const f = flag==="missing" ? `<span class="badge rust"><svg class="ic s"><use href="#i-warn"/></svg>Missing SKU — row skipped</span>`
+            : flag==="dupe" ? `<span class="badge amber"><svg class="ic s"><use href="#i-warn"/></svg>Duplicate — merges to 7</span>` : "";
+    return `<tr class="${cls}"><td class="hero" data-l="SKU">${sku?`<span class="sku">${sku}</span>`:'<span style="color:var(--ink-45)">—</span>'}</td>
+      <td data-l="Product">${name}</td><td class="n" data-l="Qty">${qty}</td><td data-l="Flag">${f}</td></tr>`;
+  }).join("");
+}
+$("#flagOnly").addEventListener("change", renderPreview);
+
+function impRun(){
+  impGo(3);
+  const stages = [["Reading file…",10],["Validating rows…",40],["Matching against Shopify…",62],["Saving to inventory…",85],["Done",100]];
+  const logs = ["1,240 rows read","3 rows missing a SKU — skipped","2 duplicate SKUs merged by quantity","1,238 rows written","42 SKUs need matching"];
+  $("#impLog").innerHTML="";
+  let i=0;
+  const t = setInterval(()=>{
+    const [lbl,p] = stages[i];
+    $("#impStageLbl").textContent = lbl;
+    $("#impPctLbl").textContent = p+"%";
+    $("#impBar").style.width = p+"%";
+    if(logs[i]) $("#impLog").insertAdjacentHTML("beforeend",
+      `<div class="stat" style="animation:fade 200ms ease"><svg class="ic s" style="color:var(--moss)"><use href="#i-check"/></svg> ${logs[i]}</div>`);
+    if(++i>=stages.length){
+      clearInterval(t);
+      setTimeout(()=>{ impGo(4); toast("Import complete — 1,238 SKUs imported","moss"); $("#navAlert").style.display="block"; },500);
+    }
+  },640);
+}
+
+/* import history (§8.8) */
+const STATUS_BADGE = {complete:['moss','✓ Complete'], failed:['rust','✕ Failed'], partial:['amber','⚠ Partial']};
+function renderImports(filter="All"){
+  const rows = IMPORTS.filter(r=> filter==="All" ? true : filter==="Complete" ? r[5]==="complete" : r[5]!=="complete");
+  $("#impHistBody").innerHTML = rows.map(([src,name,date,imported,flagged,status,rerun])=>{
+    const [tone,lbl] = STATUS_BADGE[status];
+    return `<tr class="${status==="complete"?"s-ok":status==="failed"?"s-bad":"s-warn"}">
+      <td class="hero" data-l="Source"><b style="font-size:13px">${src}</b><div style="font-size:11.5px;color:var(--ink-45)">${name}</div></td>
+      <td data-l="Date">${date}</td>
+      <td class="n" data-l="Imported">${imported?n(imported):"—"}</td>
+      <td class="n" data-l="Flagged">${flagged||"—"}</td>
+      <td data-l="Status"><span class="badge ${tone}">${lbl}</span></td>
+      <td style="text-align:right">${rerun?`<button class="btn sm" onclick="toast('Re-running ${name}…','slate')"><svg class="ic s"><use href="#i-refresh"/></svg> Re-run</button>`
+        : status==="failed" ? `<button class="btn sm" onclick="openDialog('importErr')">Why?</button>` : `<span class="hint">One-time upload</span>`}</td>
+    </tr>`;
+  }).join("");
+  $("#setImpBody").innerHTML = IMPORTS.slice(0,6).map(([src,name,date,imported,,status])=>{
+    const [tone,lbl] = STATUS_BADGE[status];
+    return `<tr><td data-l="Source">${src}</td><td data-l="Date">${date}</td><td class="n" data-l="Rows">${imported?n(imported):"—"}</td><td data-l="Status"><span class="badge ${tone}">${lbl}</span></td></tr>`;
+  }).join("");
+}
+$$("#impHistFilter button").forEach(b=>b.addEventListener("click",()=>{
+  $$("#impHistFilter button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+  renderImports(b.textContent);
+}));
+
+/* ============================================================
+   SHOPIFY (§9)
+   ============================================================ */
+function renderSyncs(){
+  const row = ([date,trig,prod,ord,res,dur])=>{
+    const [tone,lbl] = STATUS_BADGE[res==="success"?"complete":res==="failed"?"failed":"partial"];
+    return {date,trig,prod,ord,tone,lbl:res==="success"?"✓ Success":res==="failed"?"✕ Failed":"⚠ Partial",dur,
+      cls: res==="success"?"s-ok":res==="failed"?"s-bad":"s-warn"};
+  };
+  $("#syncMiniBody").innerHTML = SYNCS.slice(0,4).map(s=>{const r=row(s);
+    return `<tr class="${r.cls}"><td class="hero" data-l="Date">${r.date}</td><td class="n" data-l="Products">${r.prod}</td><td class="n" data-l="Orders">${n(r.ord)}</td><td data-l="Result"><span class="badge ${r.tone}">${r.lbl}</span></td><td class="n" data-l="Duration">${r.dur}</td></tr>`;}).join("");
+  $("#syncHistBody").innerHTML = SYNCS.map(s=>{const r=row(s);
+    return `<tr class="${r.cls}"><td class="hero" data-l="Date">${r.date}</td><td data-l="Trigger">${r.trig}</td><td class="n" data-l="Products">${r.prod}</td><td class="n" data-l="Orders">${n(r.ord)}</td><td data-l="Result"><span class="badge ${r.tone}">${r.lbl}</span></td><td class="n" data-l="Duration">${r.dur}</td></tr>`;}).join("");
+  $("#setSyncBody").innerHTML = SYNCS.slice(0,6).map(s=>{const r=row(s);
+    return `<tr><td data-l="Date">${r.date}</td><td class="n" data-l="Products">${r.prod}</td><td class="n" data-l="Orders">${n(r.ord)}</td><td data-l="Result"><span class="badge ${r.tone}">${r.lbl}</span></td></tr>`;}).join("");
+}
+function setConnected(on){
+  STATE.connected = on;
+  $("#shopConnected").style.display = on?"block":"none";
+  $("#shopEmpty").style.display = on?"none":"block";
+  $("#shopActs").style.display = on?"flex":"none";
+  if(!on) $("#shopSub").innerHTML = `<span class="dot rust"></span> No store connected`;
+  else setSync("ok");
+}
+$("#disconnectBtn").addEventListener("click",()=>openDialog("disconnect"));
+
+/* connection wizard (§9.2) */
+let wizStep = 0;
+function openWizard(){ wizStep=0; renderWizard(); openDialog("wizard"); }
+function renderWizard(){
+  const steps = ["Store URL","Access token","Test & confirm"];
+  $("#dialogHd").innerHTML = `<span class="eyebrow">Connect Shopify · step ${wizStep+1} of 3</span>
+    <h3 style="font-size:16px;margin-top:4px">${steps[wizStep]}</h3>`;
+  const bd = $("#dialogBd");
+  if(wizStep===0) bd.innerHTML = `
+    <div class="field" style="margin-bottom:0"><label>Store URL <span class="req">*</span></label>
+      <input class="inp" id="wizUrl" placeholder="mystore.myshopify.com" value="mystore.myshopify.com">
+      <div class="help">The .myshopify.com address, not your custom domain.</div></div>`;
+  if(wizStep===1) bd.innerHTML = `
+    <div class="field" style="margin-bottom:0"><label>Admin API access token <span class="req">*</span></label>
+      <input class="inp" id="wizTok" type="password" value="shpat_EXAMPLETOKENFORTHEMOCKUP">
+      <div class="help">Needs read_products and read_orders scopes. Create it under Apps → Develop apps in Shopify admin.</div></div>`;
+  if(wizStep===2) bd.innerHTML = `
+    <div id="wizTest"><div class="notice"><span class="dot slate" style="margin-top:5px"></span><div>Testing the connection…</div></div></div>`;
+  $("#dialogFt").innerHTML = `
+    <button class="btn" id="wizBack" ${wizStep===0?"disabled":""}>Back</button>
+    <span class="spacer" style="flex:1"></span>
+    <button class="btn" onclick="closeOverlays()">Cancel</button>
+    <button class="btn pri" id="wizNext" ${wizStep===2?"disabled":""}>${wizStep===2?"Finish":"Continue"}</button>`;
+  $("#wizBack").onclick = ()=>{ wizStep--; renderWizard(); };
+  $("#wizNext").onclick = ()=>{ if(wizStep<2){ wizStep++; renderWizard(); } else finishWizard(); };
+  if(wizStep===2) setTimeout(()=>{
+    $("#wizTest").innerHTML = `
+      <div class="panel"><div class="p-hd"><h3>Connection verified</h3><div class="r"><span class="badge moss"><span class="dot moss"></span>OK</span></div></div>
+        <div class="p-bd">
+          <div class="kv"><span class="k">Store name</span><span class="v">Deodap Retail</span></div>
+          <div class="kv"><span class="k">Plan</span><span class="v">Shopify Plus</span></div>
+          <div class="kv"><span class="k">Products found</span><span class="v num">340</span></div>
+          <div class="kv"><span class="k">Orders (90 days)</span><span class="v num">1,204</span></div>
+        </div></div>`;
+    $("#wizNext").disabled = false;
+  },1100);
+}
+function finishWizard(){
+  closeOverlays(); setConnected(true);
+  toast("Shopify connected — first sync started","moss");
+  go("shopify"); runSync(true);
+  setTimeout(()=>toast("Handing off to SKU matching","slate"),3200);
+}
+
+/* ============================================================
+   SKU MATCHING (§10)
+   ============================================================ */
+const MATCH_DATA = {
+  review: [
+    ["DD-1002","Silicone Spatula Set (5 pc)",42,"silicone-spatula-set-5pc","92%"],
+    ["DD-2001","LED Fairy String Lights 10m",412,"led-fairy-lights-10m","88%"],
+    ["DD-3001","Gel Pen Pack Blue (20)",640,"gel-pen-blue-20pack","95%"],
+    ["DD-4001","Magnetic Building Tiles 42 pc","54","magnetic-tiles-42","83%"],
+    ["DD-5001","Rakhi Gift Box Assorted (6)",742,"rakhi-giftbox-6","91%"],
+    ["DD-6003","Manicure Kit 12 Tools",178,"manicure-kit-12","78%"],
+    ["DD-7001","Screwdriver Set 32-in-1",254,"screwdriver-32in1","94%"],
+    ["DD-2005","Foldable Laundry Basket 50L",236,"laundry-basket-50l","86%"]
+  ],
+  missing: [
+    ["DD-0104","Blue Hoodie L",45,null,null],
+    ["DD-2007","Curtain Tie Back Set (4)",141,null,null],
+    ["DD-5005","Festive Toran Door Hanging",6,null,null],
+    ["DD-7004","Cordless Glue Gun",62,null,null]
+  ],
+  dupe: [
+    ["DD-2002","Cotton Door Mat 60x40",7,"cotton-door-mat / door-mat-cotton-60x40","2 matches"],
+    ["DD-3003","Sticky Note Cube 400 Sheets",10,"sticky-notes-400 / sticky-cube-400","2 matches"],
+    ["DD-6001","Hair Straightening Comb",112,"hair-comb-straight / straightening-comb","2 matches"]
+  ],
+  matched: [
+    ["DD-1001","Stainless Steel Vacuum Flask 750ml",186,"ss-vacuum-flask-750","100%"],
+    ["DD-1004","Airtight Cereal Dispenser 1.5L",308,"cereal-dispenser-1500","100%"],
+    ["DD-3002","A5 Ruled Notebook 200 pages",288,"a5-notebook-200","100%"],
+    ["DD-5002","Terracotta Diya Set (12)",301,"diya-set-12","100%"],
+    ["DD-7003","Measuring Tape 5m Steel",201,"measuring-tape-5m","100%"]
+  ]
+};
+const TAB_HINTS = {
+  review:"Matched on a fuzzy rule — confirm or correct each one.",
+  missing:"These SKUs exist in your sheet but not in Shopify.",
+  dupe:"More than one Shopify product claims this SKU. Pick the right one.",
+  matched:"Confirmed pairs. Future syncs match these automatically."
+};
+function renderMatch(){
+  const tab = STATE.matchTab;
+  const q = ($("#matchSearch").value||"").toLowerCase();
+  let rows = MATCH_DATA[tab].filter(r=>!STATE.resolvedSkus.has(r[0]));
+  if(q) rows = rows.filter(r=>(r[0]+" "+r[1]).toLowerCase().includes(q));
+  $("#matchHint").textContent = TAB_HINTS[tab];
+  const body = $("#matchBody");
+  if(!rows.length){
+    body.innerHTML = `<tr><td colspan="6"><div class="empty">
+      <div class="ei" style="background:color-mix(in srgb,var(--moss) 14%,transparent);color:var(--moss)"><svg class="ic l"><use href="#i-check"/></svg></div>
+      <h3>${tab==="matched"?"No matched SKUs yet":"All SKUs are matched!"}</h3>
+      <p>${tab==="matched"?"Confirm a few pairs and they'll show up here.":"Nothing left in this queue. New imports will add to it."}</p>
+      </div></td></tr>`;
+  } else {
+    body.innerHTML = rows.map(([sku,name,qty,match,conf])=>{
+      const confNum = conf? parseInt(conf):0;
+      const tone = tab==="matched"?"moss": tab==="missing"?"rust": confNum>=90?"moss": confNum>=85?"amber":"rust";
+      const cls  = tab==="matched"?"s-ok": tab==="missing"?"s-bad": confNum>=90?"s-ok":"s-warn";
+      return `<tr class="${cls}">
+        <td class="hero" data-l="SKU"><span class="sku">${sku}</span></td>
+        <td data-l="Product"><div class="pname">${name}</div></td>
+        <td class="n" data-l="Inventory qty">${n(+qty)}</td>
+        <td data-l="Shopify match">${match?`<span class="sku" style="color:var(--ink-60)">${match}</span>`:`<span style="color:var(--rust)">Not found</span>`}</td>
+        <td data-l="Confidence">${conf?`<span class="badge ${tone}">${conf}</span>`:`<span class="badge rust">No candidate</span>`}</td>
+        <td style="text-align:right">${tab==="matched"
+          ? `<button class="btn sm" onclick="toast('Link removed — ${sku} back in review','amber')">Unlink</button>`
+          : `<button class="btn sm" data-resolve="${sku}">Resolve</button>`}</td>
+      </tr>`;
+    }).join("");
+    $$("[data-resolve]", body).forEach(b=>b.addEventListener("click",()=>openResolve(b.dataset.resolve)));
+  }
+  $("#matchCount").textContent = `${rows.length} SKU${rows.length===1?"":"s"} in this view`;
+  ["review","missing","dupe","matched"].forEach(t=>{
+    $("#c"+t[0].toUpperCase()+t.slice(1)).textContent = n(STATE.counts[t]);
+  });
+  $("#navAlert").style.display = (STATE.counts.review + STATE.counts.missing) ? "block":"none";
+}
+$$("#matchTabs .tab").forEach(t=>t.addEventListener("click",()=>{
+  $$("#matchTabs .tab").forEach(x=>x.classList.remove("on")); t.classList.add("on");
+  STATE.matchTab = t.dataset.t; renderMatch();
+}));
+$("#matchSearch").addEventListener("input", renderMatch);
+function acceptAll(){
+  const high = MATCH_DATA.review.filter(r=>parseInt(r[4])>=90 && !STATE.resolvedSkus.has(r[0]));
+  high.forEach(r=>{ STATE.resolvedSkus.add(r[0]); MATCH_DATA.matched.unshift(r); });
+  STATE.counts.review = Math.max(0, STATE.counts.review - high.length);
+  STATE.counts.matched += high.length;
+  renderMatch();
+  toast(`${high.length} high-confidence SKUs linked`, "moss");
+}
+
+/* resolution drawer (§10.2) */
+let resolving = null;
+function openResolve(sku){
+  const row = [...MATCH_DATA.review, ...MATCH_DATA.missing, ...MATCH_DATA.dupe].find(r=>r[0]===sku);
+  resolving = row;
+  $("#drawerTitle").textContent = sku;
+  $("#drawerSub").textContent = row[1] + " · " + n(+row[2]) + " units on hand";
+  const cands = row[3] ? row[3].split(" / ") : [];
+  const suggestions = cands.length ? cands : ["blue-hoodie-l","blue-hoodie-large","hoodie-blue-l-2024"];
+  $("#drawerBody").innerHTML = `
+    <div class="field"><label>Search Shopify products</label>
+      <input class="inp" id="drawerSearch" placeholder="Product title, handle or SKU">
+      <div class="help">Searching all 340 products in mystore.myshopify.com</div></div>
+    <span class="eyebrow">Suggested matches</span>
+    <div style="margin-top:8px;display:flex;flex-direction:column;gap:8px" id="candList">
+      ${suggestions.map((c,i)=>`
+        <label class="linked" style="cursor:pointer;margin:0">
+          <input type="radio" name="cand" value="${c}" ${i===0?"checked":""} style="accent-color:var(--slate)">
+          <div class="lt"><b>${row[1]}</b><span class="sku">${c}</span></div>
+          <span class="badge ${i===0?"moss":""}">${i===0? (row[4]&&row[4].includes("%")?row[4]:"Best guess") :"Alternative"}</span>
+        </label>`).join("")}
+    </div>
+    <div class="notice" style="margin-top:16px"><svg class="ic s" style="margin-top:1px"><use href="#i-link"/></svg>
+      <div>Once linked, this pairing is remembered — future syncs match it automatically without asking again.</div></div>`;
+  openOverlay("#drawer");
+}
+$("#drawerLink").addEventListener("click",()=>{
+  if(!resolving) return;
+  STATE.resolvedSkus.add(resolving[0]);
+  const tab = STATE.matchTab;
+  STATE.counts[tab] = Math.max(0, STATE.counts[tab]-1);
+  STATE.counts.matched++;
+  MATCH_DATA.matched.unshift([resolving[0],resolving[1],resolving[2], $("#candList input:checked").value, "100%"]);
+  closeOverlays(); renderMatch();
+  toast(`${resolving[0]} linked — remembered for future syncs`,"moss");
+});
+$("#drawerSkip").addEventListener("click",()=>{
+  if(!resolving) return;
+  STATE.resolvedSkus.add(resolving[0]);
+  STATE.counts[STATE.matchTab] = Math.max(0, STATE.counts[STATE.matchTab]-1);
+  closeOverlays(); renderMatch();
+  toast(`${resolving[0]} marked as missing in Shopify`,"amber");
+});
+</script>
+<script>
+/* ============================================================
+   ANALYTICS (§11)
+   ============================================================ */
+const LENSES = {
+  sales:{
+    title:"Sales trend", table:"Sales by SKU",
+    hint:"Units and revenue over time, against the prior period of equal length.",
+    legend:[["Units sold","var(--slate)"],["Prior period","var(--moss)"]],
+    stats:[["Units sold","14,900","+8.4% vs prior 30d"],["Revenue","₹84.2 L","+11.9% vs prior 30d"],
+           ["Avg order value","₹565","+3.1%"],["Best day","26 Jul","742 units"]],
+    insight:"Festive SKUs carried the month — the Rakhi gift box alone moved 684 units, 4.6% of everything sold. Kitchen slipped 6% as three flask variants ran dry mid-month.",
+    head:["SKU","Product","Units sold","Sales %","Revenue","Category"], num:[2,3,4],
+    rows:()=>[...PRODUCTS].sort((a,b)=>b.sales-a.sales).slice(0,14).map(p=>
+      [`<span class="sku">${p.sku}</span>`,p.name,n(p.sales),p.pct.toFixed(2)+"%",inr(p.revenue),p.cat])
+  },
+  inventory:{
+    title:"Stock status by category", table:"Stock risk list",
+    hint:"Where stock sits today, and which categories are running thin.",
+    legend:[["In stock","var(--moss)"],["Low","var(--amber)"],["Out","var(--rust)"]],
+    stats:[["On hand","52,300","units across 1,240 SKUs"],["Low stock","38","≤10 units left"],
+           ["Out of stock","12","0 units, still selling"],["Dead stock","104","no sale in 60 days"]],
+    insight:"Twelve SKUs are selling on a Shopify listing with zero inventory behind it — every one of them is a cancelled order waiting to happen. Festive and Toys carry the most exposure.",
+    head:["SKU","Product","On hand","Sold (30d)","Days cover","Status"], num:[2,3,4],
+    rows:()=>PRODUCTS.filter(p=>p.status!=="in").sort((a,b)=>a.current-b.current).map(p=>{
+      const [lbl,tone] = STATUS_LABEL[p.status];
+      const cover = p.sales? (p.current/(p.sales/30)).toFixed(1) : "0.0";
+      return [`<span class="sku">${p.sku}</span>`,p.name,n(p.current),n(p.sales),cover+" d",`<span class="badge ${tone}"><span class="dot ${tone}"></span>${lbl}</span>`];
+    })
+  },
+  sku:{
+    title:"Top SKUs by units sold", table:"SKU performance",
+    hint:"Sell-through per SKU: how much of what you imported actually moved.",
+    legend:[["Units sold","var(--slate)"]],
+    stats:[["Sell-through","28.6%","of imported quantity"],["Top SKU","DD-5001","684 units"],
+           ["SKUs with zero sales","96","in the last 30 days"],["Median revenue","₹31,400","per selling SKU"]],
+    insight:"The top 8 SKUs account for a third of units sold. Below the top 40, sell-through drops under 12% — that tail is where imported stock is sitting still.",
+    head:["SKU","Product","Imported","Sold","Sell-through","Revenue"], num:[2,3,4,5],
+    rows:()=>[...PRODUCTS].sort((a,b)=>(b.sales/b.imported)-(a.sales/a.imported)).slice(0,14).map(p=>{
+      const st = p.sales/p.imported*100;
+      const tone = st>=60?"moss":st>=30?"amber":"rust";
+      return [`<span class="sku">${p.sku}</span>`,p.name,n(p.imported),n(p.sales),`<span class="badge ${tone}">${st.toFixed(0)}%</span>`,inr(p.revenue)];
+    })
+  }
+};
+function renderLens(){
+  const L = LENSES[STATE.lens];
+  $("#lensChartTitle").textContent = L.title;
+  $("#lensTableTitle").textContent = L.table;
+  $("#lensHint").textContent = L.hint;
+  $("#c-lens-legend").innerHTML = L.legend.map(([t,c])=>`<span><i style="background:${c}"></i>${t}</span>`).join("");
+  $("#lensStats").innerHTML = L.stats.map(([l,v,nt])=>`<div class="stat-cell"><div class="stat-lbl">${l}</div><div class="stat-val">${v}</div><div class="stat-note">${nt}</div></div>`).join("");
+  $("#lensInsight").innerHTML = `<span class="eyebrow">What stands out</span><p style="margin:8px 0 0;font-size:13px;color:var(--ink-60);line-height:1.6">${L.insight}</p>`;
+
+  const host = $("#c-lens");
+  if(STATE.lens==="sales")
+    lineChart(host,{labels:labelsFor("30D"),series:[
+      {name:"Units sold",color:"var(--slate)",vals:seriesFor("30D",540,90),fill:true},
+      {name:"Prior period",color:"var(--moss)",vals:seriesFor("30D",470,70),dashed:true}]});
+  else if(STATE.lens==="inventory")
+    stackChart(host,{groups:INV_BY_CAT.map(([label,i,l,o])=>({label,parts:[
+      {label:"In stock",val:i,color:"var(--moss)"},{label:"Low",val:l,color:"var(--amber)"},{label:"Out",val:o,color:"var(--rust)"}]}))});
+  else
+    hbarChart(host,{rows:[...PRODUCTS].sort((a,b)=>b.sales-a.sales).slice(0,9).map(p=>({label:p.name,val:p.sales}))});
+
+  $("#lensHead").innerHTML = `<tr>${L.head.map((h,i)=>`<th class="${L.num.includes(i)?"n":""}">${h}</th>`).join("")}</tr>`;
+  $("#lensBody").innerHTML = L.rows().map(r=>`<tr class="s-ok">${r.map((c,i)=>
+    `<td class="${i===0?"hero":""} ${L.num.includes(i)?"n":""}" data-l="${L.head[i]}">${c}</td>`).join("")}</tr>`).join("");
+}
+$$("#lensTabs .tab").forEach(t=>t.addEventListener("click",()=>{
+  $$("#lensTabs .tab").forEach(x=>x.classList.remove("on")); t.classList.add("on");
+  STATE.lens = t.dataset.l; renderLens();
+}));
+$("#anCat").addEventListener("change", e=>{ renderLens(); toast(`Filtered to ${e.target.value.toLowerCase()}`,"slate"); });
+$("#anRange").addEventListener("change", renderLens);
+
+/* ============================================================
+   REPORTS (§12)
+   ============================================================ */
+const REPORTS = {
+  Inventory:{head:["SKU","Product","Category","Imported qty","On hand","Status"], num:[3,4],
+    hint:"1,240 rows · generated from the 28 Jul import",
+    rows:()=>PRODUCTS.map(p=>{const [lbl,tone]=STATUS_LABEL[p.status];
+      return [`<span class="sku">${p.sku}</span>`,p.name,p.cat,n(p.imported),n(p.current),`<span class="badge ${tone}"><span class="dot ${tone}"></span>${lbl}</span>`];})},
+  Sales:{head:["SKU","Product","Units sold","Sales %","Revenue","Avg price"], num:[2,3,4,5],
+    hint:"14,900 units across 1,204 orders · last 30 days",
+    rows:()=>[...PRODUCTS].sort((a,b)=>b.revenue-a.revenue).map(p=>
+      [`<span class="sku">${p.sku}</span>`,p.name,n(p.sales),p.pct.toFixed(2)+"%",inr(p.revenue),"₹"+n(p.price)])},
+  "SKU performance":{head:["SKU","Product","Imported","Sold","Sell-through","Days cover"], num:[2,3,4,5],
+    hint:"Reconciled view — imported quantity against Shopify sales",
+    rows:()=>[...PRODUCTS].sort((a,b)=>(b.sales/b.imported)-(a.sales/a.imported)).map(p=>{
+      const st=p.sales/p.imported*100, tone=st>=60?"moss":st>=30?"amber":"rust";
+      return [`<span class="sku">${p.sku}</span>`,p.name,n(p.imported),n(p.sales),`<span class="badge ${tone}">${st.toFixed(0)}%</span>`,
+        (p.sales? (p.current/(p.sales/30)).toFixed(1):"0.0")+" d"];})}
+};
+let repFormat = "CSV";
+function renderReport(){
+  const R = REPORTS[STATE.repType];
+  $("#repTitle").textContent = STATE.repType + " report";
+  $("#repHint").textContent = R.hint;
+  $("#repHead").innerHTML = `<tr>${R.head.map((h,i)=>`<th class="${R.num.includes(i)?"n":""}">${h}</th>`).join("")}</tr>`;
+  const rows = R.rows().slice(0,12);
+  $("#repBody").innerHTML = rows.map(r=>`<tr class="s-ok">${r.map((c,i)=>
+    `<td class="${i===0?"hero":""} ${R.num.includes(i)?"n":""}" data-l="${R.head[i]}">${c}</td>`).join("")}</tr>`).join("");
+  $("#repFoot").textContent = `Showing the first ${rows.length} rows of ${n(1240)}.`;
+  $("#repExport").textContent = "Export " + repFormat;
+  $("#repFmt").textContent = repFormat + " preview";
+  $$('[data-exp]').forEach(x=>x.classList.toggle("pri", x.dataset.exp===repFormat));
+}
+$$("#repType button").forEach(b=>b.addEventListener("click",()=>{
+  $$("#repType button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
+  STATE.repType = b.textContent; renderReport();
+}));
+$$('[data-exp]').forEach(b=>b.addEventListener("click",()=>{
+  $$('[data-exp]').forEach(x=>x.classList.remove("pri")); b.classList.add("pri");
+  repFormat = b.dataset.exp; renderReport();
+}));
+$("#repExport").addEventListener("click", e=>{
+  const btn = e.currentTarget, name = `strata-${STATE.repType.toLowerCase().replace(/ /g,"-")}-28jul2026.${repFormat==="Excel"?"xlsx":repFormat.toLowerCase()}`;
+  btn.disabled = true; btn.innerHTML = `<span class="dot slate" style="background:#fff"></span> Generating report…`;
+  $("#expCenter").style.display = "block";
+  const item = document.createElement("div");
+  item.className = "linked";
+  item.innerHTML = `<div class="li" style="background:var(--tint);color:var(--slate)"><svg class="ic"><use href="#i-file"/></svg></div>
+    <div class="lt"><b>${name}</b><span class="st">Preparing…</span></div>
+    <div class="bar" style="width:120px"><i style="width:15%"></i></div>`;
+  $("#expList").prepend(item);
+  let v=15; const t=setInterval(()=>{
+    v=Math.min(100,v+17); item.querySelector(".bar i").style.width=v+"%";
+    if(v>=100){ clearInterval(t);
+      item.querySelector(".bar").outerHTML = `<span class="badge moss">Ready</span><button class="btn sm" onclick="toast('Downloaded ${name}','moss')"><svg class="ic s"><use href="#i-dl"/></svg> Download</button>`;
+      item.querySelector(".st").textContent = "Ready · 1,240 rows · 218 KB";
+      btn.disabled=false; btn.textContent = "Export " + repFormat;
+      toast(`Report ready — ${name}`,"moss");
+    }
+  },260);
+});
+
+/* ============================================================
+   SETTINGS (§13)
+   ============================================================ */
+function setSection(s){
+  $$("#setNav button").forEach(b=>b.classList.toggle("on", b.dataset.s===s));
+  $$(".set-sec").forEach(x=>x.classList.toggle("on", x.dataset.s===s));
+}
+$$("#setNav button").forEach(b=>b.addEventListener("click",()=>setSection(b.dataset.s)));
+$$("[data-save]").forEach(b=>b.addEventListener("click", e=>{
+  const mark = e.currentTarget.parentElement.querySelector(".saved");
+  mark.classList.add("on"); setTimeout(()=>mark.classList.remove("on"), 2600);
+}));
+$$("[data-toggle]").forEach(sw=>sw.addEventListener("click",()=>{
+  const kind = sw.dataset.toggle;
+  if(kind==="theme"){ setTheme(STATE.theme==="dark"?"light":"dark"); return; }
+  sw.classList.toggle("on");
+  if(kind==="density"){
+    const compact = sw.classList.contains("on");
+    $$("table.tbl").forEach(t=>t.classList.toggle("compact", compact));
+    $$("#densityToggle button").forEach((b,i)=>b.classList.toggle("on", compact? i===1 : i===0));
+  }
+}));
+
+/* ============================================================
+   overlays
+   ============================================================ */
+function openOverlay(sel){ $("#scrim").classList.add("on"); $(sel).classList.add("on"); }
+function closeOverlays(){
+  $("#scrim").classList.remove("on");
+  $("#drawer").classList.remove("on");
+  $("#dialog").classList.remove("on");
+  $("#side").classList.remove("open");
+}
+$("#scrim").addEventListener("click", closeOverlays);
+
+const DIALOGS = {
+  disconnect:{
+    hd:`<span class="eyebrow" style="color:var(--rust)">Destructive</span><h3 style="font-size:16px;margin-top:4px">Disconnect mystore.myshopify.com?</h3>`,
+    bd:`<p style="margin:0 0 12px;font-size:13.5px;color:var(--ink-60)">Sales data already pulled stays in Strata, but the dashboard stops updating and SKU matching is paused until you reconnect.</p>
+        <div class="notice amber"><svg class="ic s" style="margin-top:1px"><use href="#i-warn"/></svg><div>Your 1,180 confirmed SKU links are kept and will be reused if you reconnect the same store.</div></div>`,
+    ft:`<button class="btn" onclick="closeOverlays()">Keep connected</button><button class="btn dgr armed" onclick="doDisconnect()">Disconnect store</button>`},
+  unlink:{
+    hd:`<h3 style="font-size:16px">Unlink this Google Sheet?</h3>`,
+    bd:`<p style="margin:0;font-size:13.5px;color:var(--ink-60)">Inventory already imported from this sheet stays. Only future re-runs stop.</p>`,
+    ft:`<button class="btn" onclick="closeOverlays()">Cancel</button><button class="btn dgr armed" onclick="closeOverlays();toast('Sheet unlinked','amber')">Unlink sheet</button>`},
+  importErr:{
+    hd:`<span class="eyebrow" style="color:var(--rust)">Failed import</span><h3 style="font-size:16px;margin-top:4px">warehouse_ahd.xlsx</h3>`,
+    bd:`<div class="inline-err" style="margin-bottom:14px"><svg class="ic"><use href="#i-warn"/></svg><div>Row 1 didn't contain readable column headers.</div></div>
+        <p style="font-size:13.5px;color:var(--ink-60);margin:0 0 10px">Strata reads the first row as column names. This file starts with a merged title cell, so nothing could be mapped.</p>
+        <div class="notice"><svg class="ic s" style="margin-top:1px"><use href="#i-check"/></svg><div>Delete the title row so headers sit in row 1, then upload again.</div></div>`,
+    ft:`<button class="btn" onclick="closeOverlays()">Close</button><button class="btn pri" onclick="closeOverlays();go('import')">Try the import again</button>`},
+  wizard:{hd:"",bd:"",ft:""}
+};
+function openDialog(kind){
+  if(kind!=="wizard"){
+    const d = DIALOGS[kind];
+    $("#dialogHd").innerHTML = d.hd; $("#dialogBd").innerHTML = d.bd; $("#dialogFt").innerHTML = d.ft;
+  }
+  openOverlay("#dialog");
+}
+function doDisconnect(){ closeOverlays(); setConnected(false); toast("Shopify disconnected","amber"); }
+
+/* ============================================================
+   boot
+   ============================================================ */
+function boot(){
+  renderNotifs(); renderImports(); renderSyncs(); renderMatch(); renderReport(); setTheme("light");
+  dashSkeleton();
+  setSync("check");
+  setTimeout(()=>{
+    setSync("ok");
+    renderKpis(); renderCharts(); renderDash(); markSort();
+  }, 720);
+  setTimeout(()=>toast("42 SKUs from the 28 Jul import need matching","amber"), 2200);
+}
+window.addEventListener("resize", ()=>{ hideTip(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,120 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    env:
+      STOCKSYNC_ENV: test
+      # SQLite needs no service container — the file is created on first use.
+      STOCKSYNC_DATABASE_URL: sqlite+pysqlite:///./data/ci.db
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/pyproject.toml
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]"
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format
+        run: ruff format --check .
+
+      - name: Typecheck
+        run: mypy app
+
+      - name: Test
+        run: pytest
+
+      - name: Migrations apply cleanly from scratch
+        run: alembic upgrade head
+
+      - name: No un-migrated model changes
+        # Catches a model edited without a matching revision. Autogenerate must
+        # produce nothing once the head is applied.
+        run: |
+          alembic revision --autogenerate -m "ci drift check" --rev-id ci_drift
+          if grep -qE '^\s+op\.' alembic/versions/*ci_drift*.py; then
+            echo "::error::Models drift from migrations. Run: alembic revision --autogenerate"
+            cat alembic/versions/*ci_drift*.py
+            exit 1
+          fi
+          rm -f alembic/versions/*ci_drift*.py
+
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  secrets:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: No credentials in tracked files
+        # Narrow, high-signal patterns. StockSync Analytics holds Shopify admin tokens and
+        # Google refresh tokens; none of them belong in git.
+        run: |
+          if git grep -nIE 'shp(at|ca|pa|ss)_[A-Za-z0-9]{16,}' -- ':!*.md' ':!.github/*'; then
+            echo "::error::A Shopify token appears in a tracked file."
+            exit 1
+          fi
+          if git ls-files --error-unmatch .env 2>/dev/null; then
+            echo "::error::.env is tracked. It must never be committed."
+            exit 1
+          fi
+          echo "No credentials found in tracked files."

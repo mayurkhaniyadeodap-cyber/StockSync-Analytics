@@ -1,0 +1,55 @@
+# --- secrets ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+dist/
+build/
+
+# --- node ---
+node_modules/
+frontend/dist/
+.vite/
+*.tsbuildinfo
+
+# --- runtime artefacts ---
+/storage/exports/
+*.log
+
+# --- sqlite ---
+# The database is generated, never committed. -wal and -shm are the write-ahead
+# log sidecars created by journal_mode=WAL.
+/data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# --- editors / os ---
+# Shared editor config is committed; personal overrides are not.
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+~$*
+
+# Visual review artefacts — regenerate with the capture script, not committed.
+visual-review/
