@@ -1056,7 +1056,7 @@ select.inp.sm{height:32px;font-size:12.5px}
           <div class="p-bd">
             <div class="row2">
               <div class="field"><label>Store URL</label><input class="inp" value="mystore.myshopify.com"><div class="help">Change this and Strata will re-verify before saving.</div></div>
-              <div class="field"><label>Admin API access token</label><input class="inp" type="password" value="shpat_EXAMPLETOKENFORTHEMOCKUP"><div class="help">Needs read_products and read_orders scopes.</div></div>
+              <div class="field"><label>Admin API access token</label><input class="inp" type="password" value="example-admin-api-token"><div class="help">Needs read_products and read_orders scopes.</div></div>
             </div>
             <div class="field" style="margin-bottom:0">
               <label>Order lookback window</label>
@@ -2020,7 +2020,7 @@ function renderWizard(){
       <div class="help">The .myshopify.com address, not your custom domain.</div></div>`;
   if(wizStep===1) bd.innerHTML = `
     <div class="field" style="margin-bottom:0"><label>Admin API access token <span class="req">*</span></label>
-      <input class="inp" id="wizTok" type="password" value="shpat_EXAMPLETOKENFORTHEMOCKUP">
+      <input class="inp" id="wizTok" type="password" value="example-admin-api-token">
       <div class="help">Needs read_products and read_orders scopes. Create it under Apps → Develop apps in Shopify admin.</div></div>`;
   if(wizStep===2) bd.innerHTML = `
     <div id="wizTest"><div class="notice"><span class="dot slate" style="margin-top:5px"></span><div>Testing the connection…</div></div></div>`;

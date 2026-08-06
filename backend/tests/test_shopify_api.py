@@ -25,7 +25,7 @@ from app.services import shopify as shopify_service
 
 CONNECTION = "/api/shopify/connection"
 SYNC = "/api/shopify/sync"
-TOKEN = "shpat_TESTFIXTURENOTAREALTOKEN0000"
+TOKEN = "example-admin-api-token"
 GOOD = {"shop_url": "mystore.myshopify.com", "access_token": TOKEN}
 
 SHOP_BODY = {
@@ -421,7 +421,7 @@ class TestSaveConnection:
 
         signed_in.post(
             CONNECTION,
-            json={"shop_url": "other.myshopify.com", "access_token": "shpat_second_token_value"},
+            json={"shop_url": "other.myshopify.com", "access_token": "second-token-value"},
         )
 
         connection = stored()
@@ -536,7 +536,7 @@ class TestEnvironmentCredential:
     def test_the_env_token_is_never_returned(self, env_shopify: TestClient) -> None:
         body = env_shopify.get(CONNECTION).text
 
-        assert "shpat_from_the_environment_file" not in body
+        assert "token-from-the-environment-file" not in body
         assert "token" not in body.replace("token_scopes", "")
 
     def test_a_stored_connection_takes_precedence(
@@ -612,14 +612,14 @@ class TestSettingsNames:
 
     def test_unprefixed_names_are_read(self, monkeypatch) -> None:
         monkeypatch.setenv("SHOPIFY_STORE_URL", "envstore.myshopify.com")
-        monkeypatch.setenv("SHOPIFY_ADMIN_API_TOKEN", "shpat_unprefixed")
+        monkeypatch.setenv("SHOPIFY_ADMIN_API_TOKEN", "token-via-unprefixed-name")
         monkeypatch.setenv("SHOPIFY_API_VERSION", "2024-10")
         monkeypatch.setenv("SHOPIFY_TIMEOUT_SECONDS", "30")
 
         settings = Settings(env="test")
 
         assert settings.shopify_store_url == "envstore.myshopify.com"
-        assert settings.shopify_admin_api_token == "shpat_unprefixed"
+        assert settings.shopify_admin_api_token == "token-via-unprefixed-name"
         assert settings.shopify_api_version == "2024-10"
         assert settings.shopify_timeout_seconds == 30.0
 
@@ -658,13 +658,13 @@ class TestSettingsNames:
     def test_a_prefixed_credential_does_not_connect_a_store(self, monkeypatch) -> None:
         """The clearest failure mode of the old alias: a silently ignored pair."""
         monkeypatch.setenv("STOCKSYNC_SHOPIFY_STORE_URL", "ghost.myshopify.com")
-        monkeypatch.setenv("STOCKSYNC_SHOPIFY_ADMIN_API_TOKEN", "shpat_ghost")
+        monkeypatch.setenv("STOCKSYNC_SHOPIFY_ADMIN_API_TOKEN", "ghost-token")
 
         assert Settings(env="test").has_env_shopify_credential is False
 
     def test_a_complete_pair_is_active_outside_production(self, monkeypatch) -> None:
         monkeypatch.setenv("SHOPIFY_STORE_URL", "s.myshopify.com")
-        monkeypatch.setenv("SHOPIFY_ADMIN_API_TOKEN", "shpat_x")
+        monkeypatch.setenv("SHOPIFY_ADMIN_API_TOKEN", "example-token")
 
         assert Settings(env="development").env_shopify_credential_active is True
         # A production Settings must satisfy the production invariants — secure

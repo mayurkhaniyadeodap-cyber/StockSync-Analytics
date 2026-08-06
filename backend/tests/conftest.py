@@ -149,7 +149,7 @@ def env_shopify(signed_in: TestClient) -> TestClient:
     """
     settings = signed_in.app.state.settings
     settings.shopify_store_url = "envstore.myshopify.com"
-    settings.shopify_admin_api_token = "shpat_from_the_environment_file"
+    settings.shopify_admin_api_token = "token-from-the-environment-file"
     return signed_in
 
 

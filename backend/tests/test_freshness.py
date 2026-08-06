@@ -72,7 +72,7 @@ def connect(client: TestClient) -> ShopifyConnection:
         connection = ShopifyConnection(
             workspace_id=1,
             shop_domain="s.myshopify.com",
-            access_token_encrypted=crypto.encrypt(client.app.state.settings, "shpat_test"),
+            access_token_encrypted=crypto.encrypt(client.app.state.settings, "example-token"),
             status="connected",
             connected_at=utcnow(),
         )

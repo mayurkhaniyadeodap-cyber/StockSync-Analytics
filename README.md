@@ -424,7 +424,7 @@ store survives `reset-db`:
 
 ```ini
 SHOPIFY_STORE_URL=mystore.myshopify.com
-SHOPIFY_ADMIN_API_TOKEN=shpat_...
+SHOPIFY_ADMIN_API_TOKEN=<the Admin API access token from your custom app>
 ```
 
 The store URL also accepts the full `https://admin.shopify.com/store/mystore`

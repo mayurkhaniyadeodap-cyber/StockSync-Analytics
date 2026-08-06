@@ -134,7 +134,7 @@ function backend() {
 async function connectAStore() {
   const user = userEvent.setup();
   await user.type(await screen.findByLabelText(/Store URL/i), 'deodap.myshopify.com');
-  await user.type(screen.getByLabelText(/Admin API access token/i), 'shpat_x');
+  await user.type(screen.getByLabelText(/Admin API access token/i), 'example-token');
   await user.click(screen.getByRole('button', { name: /Save connection/i }));
 }
 

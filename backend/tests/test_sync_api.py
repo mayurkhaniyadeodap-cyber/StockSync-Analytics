@@ -146,7 +146,7 @@ def connected(signed_in: TestClient) -> TestClient:
             ShopifyConnection(
                 workspace_id=1,
                 shop_domain="s.myshopify.com",
-                access_token_encrypted=crypto.encrypt(settings, "shpat_test"),
+                access_token_encrypted=crypto.encrypt(settings, "example-token"),
                 status="connected",
                 connected_at=utcnow(),
                 order_lookback_days=90,
