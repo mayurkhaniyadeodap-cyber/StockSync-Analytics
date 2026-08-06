@@ -2,7 +2,7 @@
 
 Internal portal for DeoDap that reconciles an imported inventory sheet against Shopify sales, by SKU. It shows where the two layers agree and where they don't: what's selling with no stock behind it, what's sitting still, and what never matched at all.
 
-**Status: simplified to inventory analytics with Shopify sales enrichment.** The uploaded sheet is the source of truth; Shopify supplies units sold and nothing else. The product catalogue, SKU matching and every catalogue-derived analytic were removed — see "What Shopify is for" below. See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the milestone plan and [DECISIONS.md](DECISIONS.md) for the running decision log.
+**Status: simplified to inventory analytics with Shopify sales enrichment.** The uploaded sheet is the source of truth; Shopify supplies units sold and nothing else. The product catalogue, SKU matching and every catalogue-derived analytic were removed — see "What Shopify is for" below.
 
 ## Stack
 
