@@ -163,11 +163,32 @@ class ShopifyClient:
         filters that produced it — the cursor already encodes them. So the
         first request carries the filters and every subsequent one carries only
         the cursor and the limit.
+
+        **The walk stops if a cursor repeats.** The loop's only exit was Shopify
+        declining to offer a next link. A `rel="next"` pointing at a cursor
+        already visited therefore walked forever: each lap re-fetched pages that
+        had already been written, re-committed them as upserts, and advanced the
+        run's counters — so a sync stuck in a cycle was indistinguishable from
+        one making progress, and `finished_at` stayed null indefinitely. Cursor
+        pagination is not a snapshot (see `_write_order_page`), so a result set
+        churning underneath the walk is exactly where a repeat can arise.
         """
         cursor = start_cursor
+        #: Every cursor this walk has requested. A repeat means the sequence has
+        #: looped rather than advanced, and nothing further will be new.
+        visited: set[str] = set()
 
         while True:
             if cursor:
+                if cursor in visited:
+                    log.warning(
+                        "pagination for %s revisited a cursor after %s page(s); "
+                        "stopping rather than looping",
+                        path,
+                        len(visited),
+                    )
+                    return
+                visited.add(cursor)
                 query: dict[str, Any] = {"limit": PAGE_SIZE, "page_info": cursor}
             else:
                 query = {"limit": PAGE_SIZE, **(params or {})}

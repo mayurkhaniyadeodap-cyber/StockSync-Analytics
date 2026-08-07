@@ -436,13 +436,21 @@ def _sync_orders(
 
     since = _since(db, run, workspace_id, lookback_days)
     total = client.count("orders/count.json", {"status": "any", "created_at_min": since})
-    seen = 0
+
+    #: Shopify order ids this run has already counted. Cursor pagination re-serves
+    #: an order whose position shifted mid-walk (see `_write_order_page`), and
+    #: counting each sighting made `orders_synced` and `orders_pct` climb past the
+    #: real totals — which is what made a sync that was repeating work look like a
+    #: sync that was getting somewhere. Scoped to the run, which is also the scope
+    #: of `run.orders_synced`, and bounded by the lookback window.
+    counted: set[int] = set()
+    #: The same, for line items — `line_items_synced` inflated identically.
+    counted_lines: set[int] = set()
 
     try:
         for page in client.orders(since=since, start_cursor=run.cursor_orders):
-            _write_order_page(db, page, connection_id, workspace_id, run)
-            seen += len(page.items)
-            run.orders_pct = _percent(seen, total)
+            _write_order_page(db, page, connection_id, workspace_id, run, counted, counted_lines)
+            run.orders_pct = _percent(len(counted), total)
             run.cursor_orders = page.next_cursor
             db.commit()
     except ShopifyError as exc:
@@ -507,6 +515,8 @@ def _write_order_page(
     connection_id: int,
     workspace_id: int,
     run: SyncRun,
+    counted: set[int],
+    counted_lines: set[int],
 ) -> None:
     orders = OrderRepository(db)
     now = utcnow()
@@ -526,8 +536,6 @@ def _write_order_page(
     known: dict[int, Order] = dict(orders.orders_by_shopify_id(workspace_id, order_ids))
 
     line_payloads: list[tuple[Order, dict[str, Any]]] = []
-    #: Order ids already counted, so a duplicate sighting is not a second sale.
-    counted: set[int] = set()
 
     for payload in page.items:
         shopify_id = payload.get("id")
@@ -563,7 +571,7 @@ def _write_order_page(
             line_payloads.append((order, line))
 
     db.flush()
-    _write_line_items(db, orders, line_payloads, workspace_id, run)
+    _write_line_items(db, orders, line_payloads, workspace_id, run, counted_lines)
 
 
 def _write_line_items(
@@ -572,12 +580,12 @@ def _write_line_items(
     payloads: list[tuple[Order, dict[str, Any]]],
     workspace_id: int,
     run: SyncRun,
+    counted: set[int],
 ) -> None:
     line_ids = [int(line["id"]) for _, line in payloads if line.get("id") is not None]
     # Same reasoning as the orders above: a line arriving twice in one flush must
     # update the row created moments ago, not insert a second one.
     known: dict[int, OrderLineItem] = dict(orders.line_items_by_shopify_id(workspace_id, line_ids))
-    counted: set[int] = set()
 
     for order, payload in payloads:
         shopify_id = payload.get("id")

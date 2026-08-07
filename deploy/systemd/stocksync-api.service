@@ -1,0 +1,63 @@
+# StockSync Analytics — the API process.
+#
+#   sudo cp deploy/systemd/stocksync-api.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now stocksync-api
+#   systemctl status stocksync-api
+#
+# If it will not start, the reason is in `journalctl -u stocksync-api -n 50`.
+# app.config refuses to construct Settings when STOCKSYNC_ENV=production and
+# JWT_SECRET / ENCRYPTION_KEY / COOKIE_SECURE are not set, and create_app() runs
+# at import — so a missing one is a hard exit at startup, not a degraded server.
+
+[Unit]
+Description=StockSync Analytics API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=stocksync
+Group=stocksync
+
+# pydantic-settings reads env_file=("../.env", ".env") relative to the working
+# directory, so this picks up /srv/stocksync/.env — the repo-root .env, exactly
+# as it works in development. Nothing else needs to know where secrets live.
+WorkingDirectory=/srv/stocksync/backend
+
+# --proxy-headers is not optional behind nginx. auth.py reads
+# request.client.host for both login throttling and the recorded session IP;
+# without it every request appears to come from 127.0.0.1, so one attacker's
+# failed logins trip the per-address lockout for every user at once.
+# --forwarded-allow-ips restricts that trust to the local proxy, so a client
+# cannot forge X-Forwarded-For and evade its own throttle.
+ExecStart=/srv/stocksync/backend/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 \
+    --port 8000 \
+    --proxy-headers \
+    --forwarded-allow-ips 127.0.0.1
+
+Restart=on-failure
+RestartSec=5s
+
+# A config error is permanent: restarting forever just fills the journal. Give
+# up after 3 attempts in a minute so `systemctl status` shows the real failure.
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
+# The SQLite file, its WAL sidecars, and generated reports are the only paths
+# that need to be writable.
+#
+# These are under backend/, not the repo root. STOCKSYNC_DATABASE_URL holds a
+# RELATIVE path (./data/stocksync.db), and config.sqlite_path() resolves it
+# against the process working directory — which is WorkingDirectory above. Run
+# alembic or app.cli from anywhere else and you get a different, empty database
+# file, which looks exactly like data loss. Always cd to backend/ first.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/stocksync/backend/data /srv/stocksync/backend/storage
+
+[Install]
+WantedBy=multi-user.target

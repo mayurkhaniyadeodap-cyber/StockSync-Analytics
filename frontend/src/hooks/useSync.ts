@@ -6,6 +6,24 @@ import type { SyncState } from '../types/api';
 /** Slow enough not to hammer the API, fast enough that a bar looks alive. */
 const POLL_MS = 1500;
 
+/**
+ * How often to look while nothing is known to be running.
+ *
+ * Polling used to start only once a run had already been observed, which meant
+ * a hook that mounted against an idle server stopped looking and never started
+ * again. Every sync this app begins without going through `start()` was
+ * therefore invisible to it — and the important one does exactly that: the
+ * server queues a sync itself after each successful import.
+ *
+ * The shared status in `ShopifyStatusContext` is the instance that mattered.
+ * It mounts once with the app, typically before any sync exists, so it saw
+ * `running: false`, stopped, and never published a completion. The dashboard's
+ * "Sync in progress…" banner is drawn from the analytics payload and only
+ * re-read when that context announces a change — so with no announcement the
+ * banner stayed up until the page was reloaded by hand.
+ */
+const IDLE_POLL_MS = 5000;
+
 export interface UseSync {
   state: SyncState | null;
   starting: boolean;
@@ -17,11 +35,16 @@ export interface UseSync {
 }
 
 /**
- * Sync state, polled only while a sync is actually running.
+ * Sync state, polled continuously while enabled — quickly during a run, slowly
+ * between them.
  *
- * Polling is started and stopped by the server's `running` flag rather than by
- * the client guessing from the stage, so there is one definition of in-flight
- * and the page cannot keep polling a sync that finished.
+ * The server's `running` flag chooses the rate rather than whether to look at
+ * all, so there is one definition of in-flight and no run can begin unobserved.
+ * Watching only during a run was the earlier design, and it could not see the
+ * runs it had not started — see `IDLE_POLL_MS`.
+ *
+ * `enabled` still means *never* look, which is what `SyncAfterImport` wants
+ * before an import has produced a sync to follow.
  */
 export function useSync(enabled: boolean): UseSync {
   const [state, setState] = useState<SyncState | null>(null);
@@ -36,6 +59,10 @@ export function useSync(enabled: boolean): UseSync {
     try {
       const next = await api.get<SyncState>('/shopify/sync');
       setState(next);
+      // Cleared on success so one dropped poll does not leave a stale error on
+      // screen for as long as the page stays open — this now polls forever, so
+      // a sticky error would be a permanent one.
+      setError(null);
       if (wasRunning.current && !next.running) {
         // Finished since the last poll: tell dependent panels to reload.
         setCompletedAt(Date.now());
@@ -53,11 +80,26 @@ export function useSync(enabled: boolean): UseSync {
     void refresh();
   }, [enabled, refresh]);
 
+  // Always polling, at one of two rates: fast enough to animate a run, slow
+  // enough between runs to cost nothing. The idle rate is what lets a sync
+  // started anywhere else — an import, another tab — ever be noticed.
   useEffect(() => {
-    if (!enabled || !state?.running) return;
-    const timer = setInterval(() => void refresh(), POLL_MS);
+    if (!enabled) return;
+    const timer = setInterval(() => void refresh(), state?.running ? POLL_MS : IDLE_POLL_MS);
     return () => clearInterval(timer);
   }, [enabled, state?.running, refresh]);
+
+  // A background tab's timers are throttled, so returning to one can mean
+  // looking at a sync that finished minutes ago. Re-reading on focus makes the
+  // wait for the idle tick invisible in the case the user is actually watching.
+  useEffect(() => {
+    if (!enabled) return;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refresh();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [enabled, refresh]);
 
   const start = useCallback(async () => {
     setStarting(true);

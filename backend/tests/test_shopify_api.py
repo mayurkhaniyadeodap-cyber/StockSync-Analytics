@@ -10,6 +10,7 @@ from __future__ import annotations
 import base64
 import secrets
 from datetime import UTC, datetime
+from itertools import islice
 from typing import Any
 
 import httpx
@@ -1056,3 +1057,64 @@ class TestVerifyRecordsWhyItFailed:
         connection = stored()
         assert connection is not None
         assert connection.status == "token_expired"
+
+
+class TestPaginationTerminates:
+    """A walk has to end, even when Shopify's cursors cycle.
+
+    Cursor pagination is not a snapshot — an order updated mid-walk shifts
+    position, which is why `_write_order_page` is written to tolerate the same
+    order arriving twice. The same churn lets the sequence hand back a cursor it
+    has already issued. The loop's only exit was Shopify declining to offer a
+    next link, so a cycle ran forever: each lap re-fetched pages that had
+    already been written, re-committed them as upserts, and advanced the run's
+    counters. A sync stuck in a cycle was therefore indistinguishable from one
+    making progress — `status` stayed `running` and `finished_at` stayed null
+    with no error anywhere, which is exactly what the production store showed.
+    """
+
+    def _client(self) -> Any:
+        from app.services.shopify_client import ShopifyClient
+
+        return ShopifyClient(
+            settings=Settings(shopify_api_version="2026-07"),
+            shop_domain="mystore.myshopify.com",
+            token=TOKEN,
+            sleep=lambda _: None,
+        )
+
+    @staticmethod
+    def _link(cursor: str) -> dict[str, str]:
+        url = f"https://mystore.myshopify.com/admin/api/2026-07/orders.json?page_info={cursor}"
+        return {"Link": f'<{url}>; rel="next"'}
+
+    def test_a_repeated_cursor_ends_the_walk(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Every response points at the same next cursor: the sequence loops.
+        def cycling(url: str, **_: Any) -> FakeResponse:
+            return FakeResponse(200, {"orders": [{"id": 1}]}, self._link("LOOP"))
+
+        install(monkeypatch, cycling)
+
+        # Bounded deliberately. Unbounded, a regression here hangs the suite
+        # instead of failing it, and a hung run reads as infrastructure trouble.
+        pages = list(islice(self._client().orders(since="2026-01-01T00:00:00+00:00"), 50))
+
+        # The unfiltered first request, then LOOP once, then the repeat is caught.
+        assert len(pages) == 2
+        assert [page.cursor for page in pages] == [None, "LOOP"]
+
+    def test_distinct_cursors_still_walk_to_the_end(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The guard must not cut a legitimate walk short."""
+        cursors = iter(["A", "B", "C"])
+
+        def advancing(url: str, **_: Any) -> FakeResponse:
+            nxt = next(cursors, None)
+            headers = self._link(nxt) if nxt else {}
+            return FakeResponse(200, {"orders": [{"id": 1}]}, headers)
+
+        install(monkeypatch, advancing)
+
+        pages = list(islice(self._client().orders(since="2026-01-01T00:00:00+00:00"), 50))
+
+        assert [page.cursor for page in pages] == [None, "A", "B", "C"]
+        assert pages[-1].next_cursor is None
