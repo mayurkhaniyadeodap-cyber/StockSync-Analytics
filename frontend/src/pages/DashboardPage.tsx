@@ -14,10 +14,10 @@ import { useNavigate } from 'react-router-dom';
 
 import { ComplaintScopeNote } from '../components/ComplaintScopeNote';
 import { Icon } from '../components/Icon';
-import { RetrySyncButton } from '../components/RetrySyncButton';
 import { ShopifyWidget } from '../components/ShopifyWidget';
 import { TrendScopeNote } from '../components/TrendScopeNote';
 import { Skeleton } from '../components/Skeleton';
+import { SyncStateNotice } from '../components/SyncStateNotice';
 import { LineChart } from '../components/charts/LineChart';
 import { RangePicker } from '../components/charts/RangePicker';
 import type { Range } from '../components/charts/RangePicker';
@@ -326,36 +326,11 @@ export function DashboardPage() {
           </div>
         ) : null}
 
-        {/* Two states, and never both. `syncing` wins: a sync commits its
-            orders page by page and recomputes at the end, so every run passes
-            through a moment where orders exist that the rollup has not seen.
-            Read as staleness that put "Sales figures are behind" on screen
-            mid-sync, beside a Retry the server would have refused. */}
-        {kpis?.syncing ? (
-          <div style={{ marginBottom: 18 }}>
-            <div className="inline-err info" role="status" aria-busy="true">
-              <Icon name="sync" />
-              <div>
-                <b>Sync in progress…</b> Shopify sales are being pulled and the figures
-                recomputed. This page updates itself when it finishes.
-              </div>
-            </div>
-          </div>
-        ) : kpis?.stale ? (
-          <div style={{ marginBottom: 18 }}>
-            <div className="inline-err">
-              <Icon name="warn" />
-              <div>
-                <b>Sales figures are behind the last sync.</b> The figures could not be
-                recomputed from the orders that arrived. The orders themselves are already here,
-                so this retries the recompute alone.
-              </div>
-              <RetrySyncButton
-                onStarted={() => Promise.all([loadOverview(range), loadTable()]).then()}
-              />
-            </div>
-          </div>
-        ) : null}
+        <SyncStateNotice
+          syncing={kpis?.syncing}
+          stale={kpis?.stale}
+          onRetryStarted={() => void Promise.all([loadOverview(range), loadTable()])}
+        />
 
         <div className="cardgrid">
           {loading

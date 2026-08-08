@@ -148,9 +148,9 @@ def start_sync(
         raise NotConnectedError
 
     # Resume from wherever the previous run stopped, so a partial sync
-    # re-fetches only the pages it missed.
+    # re-fetches only the pages it missed — unless that cursor has aged out.
     previous = runs.latest(workspace_id)
-    resume_orders = previous.cursor_orders if previous else None
+    resume_orders = _resumable_cursor(previous, connection.order_lookback_days)
 
     try:
         run = runs.add(
@@ -188,6 +188,46 @@ def start_sync(
     )
     log.info("sync queued run=%s workspace=%s trigger=%s", run_id, workspace_id, trigger)
     return run
+
+
+def _resumable_cursor(previous: SyncRun | None, lookback_days: int) -> str | None:
+    """The previous run's cursor, if following it can still reach the present.
+
+    **Why a cursor expires.** Shopify's ``page_info`` encodes the filters that
+    produced it, including ``created_at_min``. Resuming one therefore walks the
+    result set *as it was when that cursor was first issued* — orders created
+    afterwards were never in that sequence, so no amount of paging reaches them.
+    `_since` documents the production symptom: a cursor carrying
+    ``created_at_min: 2026-04-30`` from a first sync eight days earlier, and
+    every resumed run walking that old window while the newest 30 hours stayed
+    unfetched.
+
+    A cursor younger than the lookback window is still worth following: the
+    window it encodes overlaps the one being asked for now, so resuming saves
+    re-fetching pages that already committed. Older than that and the two
+    windows have stopped overlapping — the cursor can only walk history the
+    next full sync would cover anyway, so it is discarded and the run starts
+    fresh at ``now - lookback``.
+
+    Discarding costs a re-fetch. Keeping costs never catching up, which is
+    silent, and the sync reports success while the dashboard stays behind.
+    """
+    if previous is None or not previous.cursor_orders:
+        return None
+
+    minted = _as_utc(previous.started_at)
+    if minted is None:  # pragma: no cover - started_at is not nullable
+        return None
+
+    if utcnow() - minted > timedelta(days=lookback_days):
+        log.info(
+            "discarding sync cursor from %s: older than the %s-day lookback, "
+            "so it cannot reach the present",
+            minted.isoformat(),
+            lookback_days,
+        )
+        return None
+    return previous.cursor_orders
 
 
 def retry_sync(

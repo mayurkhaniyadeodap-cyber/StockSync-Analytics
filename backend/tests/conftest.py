@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 from app.config import Settings
 from app.config import get_settings as get_settings_cached
 from app.core.security import hash_password
+from app.core.throttle import reset_rate_limiters
 from app.db import session as session_module
 from app.db.base import Base
 from app.db.session import DatabaseStatus
@@ -89,6 +90,12 @@ def _clear_caches() -> None:
         session_module.get_session_factory,
     ):
         cached.cache_clear()
+    # The rate limiters are process-wide singletons holding a sliding window of
+    # admissions. Unlike the login throttle — which counts *failures*, and which
+    # a successful sign-in clears — these accumulate across tests, so one file's
+    # syncs would exhaust another file's budget and fail it for reasons that
+    # have nothing to do with what it asserts.
+    reset_rate_limiters()
 
 
 @pytest.fixture
@@ -103,6 +110,16 @@ def api(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
         "STOCKSYNC_DATABASE_URL", f"sqlite+pysqlite:///{(tmp_path / 'api.db').as_posix()}"
     )
     monkeypatch.setenv("STOCKSYNC_ENV", "test")
+    # Exports and backups are files. Without these the suite writes real
+    # reports into the working copy's storage/ directory and leaves them there.
+    # Rate limiting is exercised deliberately in test_rate_limit.py. Everywhere
+    # else it is noise: a test that legitimately imports eight files, or fires
+    # ten concurrent syncs to prove the one-live-run guard, would fail on the
+    # limit rather than on what it is asserting. Raised, not disabled, so the
+    # code path still runs on every request.
+    monkeypatch.setenv("STOCKSYNC_RATE_LIMIT_MAX_EVENTS", "1000")
+    monkeypatch.setenv("STOCKSYNC_EXPORT_DIR", str(tmp_path / "exports"))
+    monkeypatch.setenv("STOCKSYNC_BACKUP_DIR", str(tmp_path / "backups"))
     monkeypatch.setenv("STOCKSYNC_JWT_SECRET", "t" * 48)
     monkeypatch.setenv(
         "STOCKSYNC_ENCRYPTION_KEY",

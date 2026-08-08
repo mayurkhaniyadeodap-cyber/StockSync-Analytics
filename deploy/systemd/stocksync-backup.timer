@@ -1,0 +1,21 @@
+# When the snapshot runs.
+#
+# Daily at 02:30 with a randomised delay: the exact minute does not matter, and
+# jitter keeps a backup from landing on the same second as anything else the
+# host does on a round number.
+
+[Unit]
+Description=Daily StockSync Analytics database snapshot
+
+[Timer]
+OnCalendar=*-*-* 02:30:00
+RandomizedDelaySec=15m
+
+# Runs at the next opportunity if the host was off at 02:30. Without this, a
+# machine that is shut down overnight is a machine that is never backed up.
+Persistent=true
+
+Unit=stocksync-backup.service
+
+[Install]
+WantedBy=timers.target

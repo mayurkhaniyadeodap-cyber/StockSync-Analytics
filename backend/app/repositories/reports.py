@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session, defer
+from sqlalchemy.orm import Session
 
 from app.models import Report
 
@@ -33,9 +33,11 @@ class ReportRepository:
     ) -> tuple[list[Report], int]:
         """The Export Centre list, newest first.
 
-        ``content`` is deferred: the history renders names and sizes, and
-        loading a megabyte of report bytes per row to print a filename would
-        make the list slower the more the workspace has exported.
+        ``content`` used to be deferred here, because loading a megabyte of
+        report bytes per row to print a filename made the list slower the more
+        a workspace had exported. The bytes now live on disk and the row
+        carries a short path, so the whole row is cheap and there is nothing
+        left to defer.
         """
         stmt = select(Report).where(Report.workspace_id == workspace_id)
         if kind:
@@ -44,13 +46,27 @@ class ReportRepository:
         total = self._db.scalar(select(func.count()).select_from(stmt.subquery())) or 0
         rows = list(
             self._db.scalars(
-                stmt.options(defer(Report.content))
-                .order_by(Report.created_at.desc(), Report.id.desc())
+                stmt.order_by(Report.created_at.desc(), Report.id.desc())
                 .limit(limit)
                 .offset(offset)
             )
         )
         return rows, total
+
+    def stored_paths(self) -> set[str]:
+        """Every export key any row still points at, across all workspaces.
+
+        Deliberately unscoped: the sweep decides what to delete from disk, and
+        a per-workspace answer would make every other workspace's files look
+        orphaned.
+        """
+        return {
+            path
+            for path in self._db.scalars(
+                select(Report.storage_path).where(Report.storage_path.is_not(None))
+            )
+            if path
+        }
 
     def delete(self, report: Report) -> None:
         self._db.delete(report)

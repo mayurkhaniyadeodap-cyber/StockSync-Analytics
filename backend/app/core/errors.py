@@ -94,6 +94,33 @@ class TooManyAttemptsError(AppError):
         self.retry_after_seconds = retry_after_seconds
 
 
+class RateLimitedError(AppError):
+    """Too many expensive operations started by one user in a short window.
+
+    Distinct from `TooManyAttemptsError`, which is about suspicion. This one is
+    about capacity: nothing is wrong, the user is simply ahead of the single
+    worker thread. So it names the operation and says when — a message that
+    reads as "wait" rather than "you have been locked out".
+    """
+
+    code = "rate_limited"
+    status_code = status.HTTP_429_TOO_MANY_REQUESTS
+    message = "That's more of these than StockSync Analytics can start at once."
+    next_step = "Wait a moment and try again."
+
+    def __init__(self, what: str, retry_after_seconds: int) -> None:
+        if retry_after_seconds < 90:
+            when = f"{max(1, retry_after_seconds)} seconds"
+        else:
+            minutes = round(retry_after_seconds / 60)
+            when = f"{minutes} minute" + ("" if minutes == 1 else "s")
+        super().__init__(
+            f"You've started several {what}s in a row.",
+            next_step=f"Wait about {when} and try again. The one already running is unaffected.",
+        )
+        self.retry_after_seconds = retry_after_seconds
+
+
 def _envelope(
     status_code: int, code: str, message: str, next_step: str, detail: Any = None
 ) -> JSONResponse:

@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import re
 from datetime import UTC, datetime
+from pathlib import Path
 
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -34,7 +35,7 @@ from app.models import (
     utcnow,
 )
 from app.repositories.reports import ReportRepository
-from app.services import report_data, report_files
+from app.services import report_data, report_files, report_store
 from app.workers import runner
 
 log = logging.getLogger(__name__)
@@ -159,7 +160,11 @@ def run_report_job(settings: Settings, *, report_id: int, workspace_id: int) -> 
                 limit=report.row_limit or MAX_REPORT_ROWS,
             )
             content = report_files.render(table, report.fmt)
-            report.content = content
+            # Written before the row is marked ready and committed with it, so
+            # a `ready` row always describes a file that reached disk. The
+            # reverse order would let a crash between the two leave a report
+            # the Export Centre offers and the download cannot find.
+            report.storage_path = report_store.write(settings, report=report, content=content)
             report.size_bytes = len(content)
             report.row_count = len(table.rows)
             report.status = "ready"
@@ -168,21 +173,27 @@ def run_report_job(settings: Settings, *, report_id: int, workspace_id: int) -> 
         except Exception as caught:  # a worker thread must not die silently
             log.exception("report %s failed", report_id)
             report.status = "failed"
-            report.content = None
+            # Whatever landed before the failure is not a report anyone can
+            # use, and leaving it would be an orphan the sweep has to find.
+            report_store.remove(settings, report)
+            report.storage_path = None
             report.error_code = "report_failed"
             # The user's half of the error envelope (§16). The exception text is
             # in the log; what reaches the screen says what to do instead.
             report.error_detail = f"{type(caught).__name__} while building the file."
         report.completed_at = utcnow()
         db.commit()
-        _prune(db, workspace_id)
+        _prune(db, settings, workspace_id)
 
 
-def _prune(db: Session, workspace_id: int) -> None:
+def _prune(db: Session, settings: Settings, workspace_id: int) -> None:
     """Drop the oldest rows past the cap. Advisory — never fails the job."""
     try:
         rows, total = ReportRepository(db).page(workspace_id, limit=HISTORY_LIMIT + 100, offset=0)
         for stale in rows[HISTORY_LIMIT:]:
+            # File first: a row removed without its file is an orphan nothing
+            # points at, and only the start-up sweep would ever find it.
+            report_store.remove(settings, stale)
             db.delete(stale)
         if total > HISTORY_LIMIT:
             db.commit()
@@ -210,20 +221,40 @@ def reclaim_interrupted(db: Session) -> int:
     return len(stale)
 
 
-def download(db: Session, *, workspace_id: int, report_id: int) -> tuple[Report, bytes]:
+def download(
+    db: Session, settings: Settings, *, workspace_id: int, report_id: int
+) -> tuple[Report, Path]:
+    """The row and the file to stream from.
+
+    Returns a path rather than bytes: streaming from disk is the whole reason
+    the file left the database, and reading it here to hand back would put it
+    straight back into this process's memory.
+
+    A `ready` row whose file has gone raises the not-ready error rather than a
+    500. From the user's side those are the same event — the export is not
+    there — and the Export Centre already renders that state.
+    """
     report = ReportRepository(db).get(workspace_id, report_id)
     if report is None:
         raise ReportNotFoundError
-    if report.status != "ready" or report.content is None:
+    if report.status != "ready" or not report.storage_path:
         raise ReportNotReadyError
-    return report, report.content
+
+    path = report_store.read(settings, report)
+    if not path.is_file():
+        log.warning("report %s is ready but its file is missing: %s", report_id, path)
+        raise ReportNotReadyError
+    return report, path
 
 
-def delete(db: Session, *, workspace_id: int, report_id: int) -> None:
+def delete(db: Session, settings: Settings, *, workspace_id: int, report_id: int) -> None:
     repository = ReportRepository(db)
     report = repository.get(workspace_id, report_id)
     if report is None:
         raise ReportNotFoundError
+    # File first, for the same reason as the prune above: a delete that removed
+    # the row and failed on the file would leave bytes nothing can reach.
+    report_store.remove(settings, report)
     repository.delete(report)
     db.commit()
     log.info("report deleted id=%s workspace=%s", report_id, workspace_id)

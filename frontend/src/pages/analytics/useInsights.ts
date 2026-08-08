@@ -10,6 +10,7 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import type { Range } from '../../components/charts/RangePicker';
+import { useShopifyStatus } from '../../hooks/useShopifyStatus';
 import { StockSyncApiError, api } from '../../lib/api';
 import type { AnalyticsInsights, RebuildResult } from '../../types/api';
 
@@ -28,6 +29,12 @@ export interface InsightsState {
 }
 
 export function useInsights(): InsightsState {
+  // The same signal the dashboard watches. `/analytics/insights` carries
+  // `syncing`, which draws the "Sync in progress…" banner on every Analytics
+  // page — so without this the banner had nothing to clear it and stayed up
+  // until a manual reload, exactly as it did on the dashboard. It stays 0
+  // through the first load, so arriving on a page does not fetch twice.
+  const { changedAt } = useShopifyStatus();
   const [range, setRangeState] = useState<Range>(rememberedRange);
   const [insights, setInsights] = useState<AnalyticsInsights | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +53,7 @@ export function useInsights(): InsightsState {
 
   useEffect(() => {
     void load(range);
-  }, [load, range]);
+  }, [load, range, changedAt]);
 
   const setRange = useCallback((days: Range) => {
     rememberedRange = days;

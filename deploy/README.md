@@ -270,10 +270,98 @@ sudo -u stocksync NEW_PW='<new password>' \
 
 ## Backups
 
-Everything that matters is `data/stocksync.db`. SQLite is in WAL mode, so copying
-the file while the app runs can capture a torn state — use SQLite's own backup:
+Two directories hold state, and both sit at the repo root — not under
+`backend/`, wherever you run commands from:
+
+| Path | What | Replaceable? |
+| --- | --- | --- |
+| `data/stocksync.db` | Everything — accounts, inventory, orders, rollups | **No** |
+| `storage/exports/` | Generated report files | Yes, by re-exporting |
+| `storage/backups/` | Snapshots written below | — |
+
+Only the database is irreplaceable. Exports are regenerable, and a report whose
+file has gone is reported as "not ready" rather than as an error.
+
+### Automatic snapshots
 
 ```bash
-sudo -u stocksync sqlite3 /srv/stocksync/data/stocksync.db \
-  ".backup '/srv/stocksync/backups/stocksync-$(date +%F).db'"
+sudo cp /srv/stocksync/deploy/systemd/stocksync-backup.* /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now stocksync-backup.timer
+systemctl list-timers stocksync-backup.timer
 ```
+
+Daily at 02:30, `Persistent=true` so a host that was off overnight snapshots at
+its next opportunity. Retention keeps `STOCKSYNC_BACKUP_KEEP` snapshots
+(default 14) and deletes the rest.
+
+On demand — do this before any migration:
+
+```bash
+cd /srv/stocksync/backend
+sudo -u stocksync .venv/bin/python -m app.cli backup
+```
+
+**Not `cp`.** The database runs in WAL mode, so committed data lives partly in
+`stocksync.db-wal`; copying the main file alone yields a database that opens
+cleanly and is missing recent writes. `app.cli backup` uses SQLite's online
+backup API, which is consistent by construction and does not block writers.
+
+### Checking it actually ran
+
+A green timer over a backup that failed is the thing to avoid. The command
+exits non-zero on failure, so systemd records it:
+
+```bash
+systemctl is-failed stocksync-backup      # alert on this
+ls -lh /srv/stocksync/storage/backups/    # and on the newest file's age
+```
+
+### Offsite
+
+Snapshots on the same disk as the database do not survive losing the disk:
+
+```bash
+rsync -a /srv/stocksync/storage/backups/ backup-host:/srv/stocksync-backups/
+```
+
+### Restoring
+
+Snapshots are ordinary SQLite files. Restore with the service stopped so
+nothing writes underneath it.
+
+```bash
+sudo systemctl stop stocksync-api
+
+# Keep what you are replacing: a restore that turns out to be the wrong
+# snapshot is recoverable; one that overwrote the only other copy is not.
+sudo -u stocksync cp /srv/stocksync/data/stocksync.db \
+                     /srv/stocksync/data/stocksync.db.before-restore
+
+# The -wal and -shm sidecars belong to the file being replaced. Left in place
+# they are applied on top of the restored database, silently reintroducing
+# part of what you just rolled back.
+sudo -u stocksync rm -f /srv/stocksync/data/stocksync.db-wal \
+                        /srv/stocksync/data/stocksync.db-shm
+
+sudo -u stocksync cp /srv/stocksync/storage/backups/stocksync-YYYYMMDD-HHMMSS.db \
+                     /srv/stocksync/data/stocksync.db
+
+sudo systemctl start stocksync-api
+curl -s http://localhost:8000/api/health
+```
+
+A snapshot older than your last deploy predates its migrations, so check the
+schema before serving traffic:
+
+```bash
+cd /srv/stocksync/backend
+sudo -u stocksync .venv/bin/alembic current    # compare against `alembic heads`
+sudo -u stocksync .venv/bin/alembic upgrade head
+```
+
+Exports referenced by restored rows may no longer be on disk; those show as
+unavailable and can be regenerated. Restore `storage/exports/` alongside the
+database if you need them intact.
+
+**Rehearse this.** A restore procedure nobody has run is a hypothesis.

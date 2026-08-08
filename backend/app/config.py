@@ -19,6 +19,13 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_SQLITE_PATH = REPO_ROOT / "data" / "stocksync.db"
 
+#: Generated exports. Outside `data/` so a database backup and an export sweep
+#: are separate operations on separate directories.
+DEFAULT_EXPORT_DIR = REPO_ROOT / "storage" / "exports"
+
+#: `sqlite3 .backup` snapshots.
+DEFAULT_BACKUP_DIR = REPO_ROOT / "storage" / "backups"
+
 # Regenerated on every process start. Only ever used when jwt_secret is unset,
 # which production forbids.
 _EPHEMERAL_SECRET = secrets.token_urlsafe(48)
@@ -98,6 +105,16 @@ class Settings(BaseSettings):
     #: Failed attempts, per account and per client address, before the next one
     #: is refused outright. Argon2 costs ~95 ms, which is a price ceiling per
     #: connection rather than a control — concurrency defeats it.
+    # --- expensive-operation rate limiting ---
+    #: How many imports, syncs, rebuilds or report generations one user may
+    #: start per window, counted per operation. Every one of them runs on the
+    #: single worker thread, so this is what stops one user — or a browser tab
+    #: retrying in a loop — from filling a queue everyone else waits behind.
+    #: Well above deliberate use: nobody imports six spreadsheets in five
+    #: minutes on purpose.
+    rate_limit_max_events: int = Field(default=6, ge=1, le=1000)
+    rate_limit_window_seconds: int = Field(default=300, ge=10, le=86_400)
+
     login_max_attempts: int = Field(default=8, ge=1, le=100)
     #: How long the failures are counted over. A window rather than a running
     #: total, so an honest user who mistyped twice last week is not one attempt
@@ -121,6 +138,19 @@ class Settings(BaseSettings):
 
     # Design doc §8.2: "Supports .csv, .xlsx, .xls up to 25MB".
     max_upload_mb: int = Field(default=25, ge=1, le=200)
+
+    # Where generated exports are written. Anchored to the repo root by the
+    # validator below for the same reason the SQLite path is: a directory
+    # resolved against the working directory means the API writes to one place
+    # and a CLI run from elsewhere reads another.
+    export_dir: Path = DEFAULT_EXPORT_DIR
+
+    # Where `sqlite3 .backup` snapshots are kept, and how many to retain.
+    # Deliberately a sibling of the database rather than a child: a backup
+    # directory inside the directory being backed up is one recursive copy away
+    # from filling the disk with copies of copies.
+    backup_dir: Path = DEFAULT_BACKUP_DIR
+    backup_keep: int = Field(default=14, ge=1, le=365)
 
     # --- M3 ---
     # The Google Sheet export fetch. Shorter than the Shopify timeout: this one
@@ -204,6 +234,17 @@ class Settings(BaseSettings):
                 return f"{prefix}:///{resolved.as_posix()}{query}"
 
         return value
+
+    @field_validator("export_dir", "backup_dir", mode="after")
+    @classmethod
+    def _anchor_directory(cls, value: Path) -> Path:
+        """Same contract as the SQLite path above: relative means repo-relative.
+
+        A directory resolved against the working directory would put exports
+        written by the API somewhere a CLI run from another folder cannot find,
+        and the failure looks like a missing file rather than a second one.
+        """
+        return value if value.is_absolute() else (REPO_ROOT / value).resolve()
 
     @model_validator(mode="after")
     def _require_jwt_secret_in_production(self) -> Settings:

@@ -1258,3 +1258,128 @@ class TestEveryStepIsRecorded:
 
     def test_an_unknown_run_is_a_404(self, connected: TestClient) -> None:
         assert connected.get("/api/shopify/syncs/9999/steps").status_code == 404
+
+
+class TestCursorExpiry:
+    """A resume cursor that can no longer reach the present is discarded.
+
+    Shopify's ``page_info`` encodes the filters that produced it, including
+    ``created_at_min``. Following one walks the result set *as it was when the
+    cursor was issued* — orders created afterwards were never in that sequence.
+    A cursor older than the lookback window can therefore only walk history the
+    next full sync would cover anyway, while never reaching now. On the
+    production store that showed as syncs completing successfully while the
+    newest 30 hours stayed unfetched, indefinitely.
+    """
+
+    def finished_run(self, *, age: timedelta, cursor: str | None) -> None:
+        with session_module.get_session_factory()() as db:
+            db.add(
+                SyncRun(
+                    workspace_id=1,
+                    connection_id=1,
+                    trigger="manual",
+                    status="finished",
+                    stage="done",
+                    result="partial",
+                    started_at=utcnow() - age,
+                    finished_at=utcnow() - age,
+                    orders_synced=100,
+                    cursor_orders=cursor,
+                )
+            )
+            db.commit()
+
+    def latest_cursor(self) -> str | None:
+        return rows(SyncRun)[-1].cursor_orders
+
+    def test_a_recent_cursor_is_still_resumed(self, connected: TestClient) -> None:
+        """Inside the window the two overlap, so resuming saves re-fetching
+        pages that already committed — the behaviour this must not break."""
+        self.finished_run(age=timedelta(days=2), cursor="cursor-recent")
+
+        connected.post(SYNC)
+
+        assert self.latest_cursor() == "cursor-recent"
+
+    def test_a_cursor_older_than_the_lookback_is_dropped(self, connected: TestClient) -> None:
+        # The connection's default lookback is 90 days.
+        self.finished_run(age=timedelta(days=120), cursor="cursor-ancient")
+
+        connected.post(SYNC)
+
+        assert self.latest_cursor() is None
+
+    def test_the_boundary_keeps_the_cursor(self, connected: TestClient) -> None:
+        """Expiry is *older than* the window, not "as old as" — a cursor minted
+        exactly at the edge still overlaps it."""
+        self.finished_run(age=timedelta(days=89), cursor="cursor-edge")
+
+        connected.post(SYNC)
+
+        assert self.latest_cursor() == "cursor-edge"
+
+    def test_no_previous_run_means_no_cursor(self, connected: TestClient) -> None:
+        connected.post(SYNC)
+
+        assert self.latest_cursor() is None
+
+
+class TestRecoveryWithoutARestart:
+    """A stuck run must clear itself without waiting for a deploy.
+
+    Start-up reclaim misses a run killed less than five minutes before the
+    process came back: too fresh to reclaim then, and nothing looked again. It
+    stayed `running`, blocked every future sync with "a sync is already
+    running", and the UI polled a bar that would never move. Nothing short of a
+    second restart cleared it, which is not a thing to ask a user to do.
+    """
+
+    def stuck(self, *, age: timedelta) -> None:
+        with session_module.get_session_factory()() as db:
+            run = SyncRun(
+                workspace_id=1,
+                connection_id=1,
+                trigger="manual",
+                status="running",
+                stage="orders",
+                started_at=utcnow() - age,
+                orders_synced=250,
+                cursor_orders="cursor-mid",
+            )
+            db.add(run)
+            db.commit()
+            db.execute(
+                text("UPDATE sync_runs SET updated_at = :when WHERE id = :id"),
+                {"when": utcnow() - age, "id": run.id},
+            )
+            db.commit()
+
+    def test_polling_the_state_reclaims_an_abandoned_run(self, connected: TestClient) -> None:
+        self.stuck(age=timedelta(hours=2))
+
+        body = connected.get(SYNC).json()
+
+        assert body["running"] is False
+        assert body["run"]["error_code"] == "sync_interrupted"
+
+    def test_polling_leaves_a_live_run_alone(self, connected: TestClient) -> None:
+        """The guard that matters: a sync committing pages right now belongs to
+        a worker that is still going, in this process or another."""
+        self.stuck(age=timedelta(seconds=5))
+
+        assert connected.get(SYNC).json()["running"] is True
+
+    def test_a_reclaimed_run_stops_blocking_a_new_sync(self, connected: TestClient) -> None:
+        """The user-visible half: the deadlock they could not clear."""
+        self.stuck(age=timedelta(hours=2))
+        connected.get(SYNC)
+
+        assert connected.post(SYNC).status_code == 202
+
+    def test_the_resume_cursor_survives_the_reclaim(self, connected: TestClient) -> None:
+        self.stuck(age=timedelta(hours=2))
+
+        connected.get(SYNC)
+
+        assert rows(SyncRun)[-1].cursor_orders == "cursor-mid"

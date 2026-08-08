@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import type { ReactNode } from 'react';
 
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { Icon } from './components/Icon';
 import { Skeleton } from './components/Skeleton';
 import { AppShell } from './components/shell/AppShell';
@@ -89,40 +90,45 @@ function BootScreen() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <ToastProvider>
-        <AuthProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
+    // Outside the providers, so a throw in one of *them* still lands somewhere
+    // rather than on a blank document. It offers no "back to dashboard": if the
+    // provider tree is broken, routing inside it goes nowhere useful.
+    <ErrorBoundary>
+      <ThemeProvider>
+        <ToastProvider>
+          <AuthProvider>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
 
-            <Route
-              element={
-                <RequireAuth>
-                  <AppShell />
-                </RequireAuth>
-              }
-            >
-              <Route path="/dashboard" element={<DashboardPage />} />
-              <Route path="/import" element={<ImportPage />} />
-              <Route path="/import-history" element={<ImportHistoryPage />} />
-              <Route path="/shopify" element={<ShopifyPage />} />
-              <Route path="/sync-history" element={<SyncHistoryPage />} />
-              <Route path="/analytics" element={<AnalyticsPage />} />
-              <Route path="/analytics/sales" element={<SalesPage />} />
-              <Route path="/analytics/complaints" element={<ComplaintsPage />} />
-              <Route path="/analytics/inventory" element={<InventoryPage />} />
-              <Route path="/analytics/performance" element={<PerformancePage />} />
-              <Route path="/reports" element={<ReportsPage />} />
-              {/* :section deep-links the settings sub-nav (design doc §13). */}
-              <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/settings/:section" element={<SettingsPage />} />
-            </Route>
+              <Route
+                element={
+                  <RequireAuth>
+                    <AppShell />
+                  </RequireAuth>
+                }
+              >
+                <Route path="/dashboard" element={<DashboardPage />} />
+                <Route path="/import" element={<ImportPage />} />
+                <Route path="/import-history" element={<ImportHistoryPage />} />
+                <Route path="/shopify" element={<ShopifyPage />} />
+                <Route path="/sync-history" element={<SyncHistoryPage />} />
+                <Route path="/analytics" element={<AnalyticsPage />} />
+                <Route path="/analytics/sales" element={<SalesPage />} />
+                <Route path="/analytics/complaints" element={<ComplaintsPage />} />
+                <Route path="/analytics/inventory" element={<InventoryPage />} />
+                <Route path="/analytics/performance" element={<PerformancePage />} />
+                <Route path="/reports" element={<ReportsPage />} />
+                {/* :section deep-links the settings sub-nav (design doc §13). */}
+                <Route path="/settings" element={<SettingsPage />} />
+                <Route path="/settings/:section" element={<SettingsPage />} />
+              </Route>
 
-            <Route path="/" element={<Navigate to="/dashboard" replace />} />
-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
-          </Routes>
-        </AuthProvider>
-      </ToastProvider>
-    </ThemeProvider>
+              <Route path="/" element={<Navigate to="/dashboard" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
+            </Routes>
+          </AuthProvider>
+        </ToastProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }

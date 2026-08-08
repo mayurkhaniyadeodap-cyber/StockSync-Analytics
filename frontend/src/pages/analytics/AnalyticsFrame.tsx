@@ -20,7 +20,7 @@ import type { ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Icon } from '../../components/Icon';
-import { RetrySyncButton } from '../../components/RetrySyncButton';
+import { SyncStateNotice } from '../../components/SyncStateNotice';
 import { RangePicker } from '../../components/charts/RangePicker';
 import { Page } from '../../components/shell/Page';
 import { PageHeader } from '../../components/shell/PageHeader';
@@ -101,35 +101,11 @@ export function AnalyticsFrame({
           </div>
         ) : null}
 
-        {/* Only when the automatic recomputation actually failed. A sync now
-            recomputes before it is called successful, so in the ordinary case
-            this never appears — and when it does, the next sync retries on its
-            own rather than asking the user to press anything. */}
-        {/* `syncing` wins over `stale`, and the two are mutually exclusive by
-            construction on the server. A run in flight is not staleness. */}
-        {insights?.syncing ? (
-          <div style={{ marginBottom: 18 }}>
-            <div className="inline-err info" role="status" aria-busy="true">
-              <Icon name="sync" />
-              <div>
-                <b>Sync in progress…</b> Shopify sales are being pulled and the figures
-                recomputed. This page updates itself when it finishes.
-              </div>
-            </div>
-          </div>
-        ) : insights?.stale ? (
-          <div style={{ marginBottom: 18 }}>
-            <div className="inline-err">
-              <Icon name="warn" />
-              <div>
-                <b>Sales figures are behind the last sync.</b> The figures could not be
-                recomputed from the orders that arrived. The orders themselves are already here,
-                so this retries the recompute alone.
-              </div>
-              <RetrySyncButton onStarted={reload} />
-            </div>
-          </div>
-        ) : null}
+        <SyncStateNotice
+          syncing={insights?.syncing}
+          stale={insights?.stale}
+          onRetryStarted={() => void reload()}
+        />
 
         {children}
       </Page>

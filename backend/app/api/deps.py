@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated
 
 from fastapi import Depends, Request
@@ -9,8 +10,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
 from app.config import Settings, get_settings
-from app.core import security
-from app.core.errors import AppError
+from app.core import security, throttle
+from app.core.errors import AppError, RateLimitedError
 from app.db.session import get_db
 from app.models import AuthSession, User
 from app.models.base import utcnow
@@ -24,6 +25,9 @@ class NotAuthenticatedError(AppError):
     status_code = 401
     message = "You're not signed in."
     next_step = "Sign in and try again."
+
+
+log = logging.getLogger(__name__)
 
 
 def get_app_settings(request: Request) -> Settings:
@@ -76,3 +80,27 @@ def get_current_user(request: Request, db: DbDep, settings: SettingsDep) -> User
 
 
 CurrentUser = Annotated[User, Depends(get_current_user)]
+
+
+def enforce_rate_limit(settings: Settings, user: User, *, operation: str, what: str) -> None:
+    """Consume one slot for an expensive operation, or refuse with a wait.
+
+    Called at the top of the handler rather than as a `Depends`, so the slot is
+    only spent once the request has passed validation — a malformed upload that
+    was going to 422 anyway should not cost the user an import.
+
+    `what` is the noun the message uses ("import", "sync"), so the error reads
+    as a sentence rather than as an operation code.
+    """
+    limiter = throttle.get_rate_limiter(settings, operation)
+    decision = limiter.admit(
+        throttle.rate_key(operation, workspace_id=user.workspace_id, user_id=user.id)
+    )
+    if not decision.allowed:
+        log.info(
+            "rate limit refused %s for user=%s workspace=%s",
+            operation,
+            user.id,
+            user.workspace_id,
+        )
+        raise RateLimitedError(what, decision.retry_after_seconds)

@@ -4,23 +4,25 @@ One table. A row is both the request and the result: it exists the moment a
 user asks for an export, carries the status they watch, and ends up holding the
 bytes they download.
 
-**The file lives in the row, not on disk.** Reports are small and bounded (a
-row cap, below), and a BLOB removes a whole class of bugs a file store brings
-with it — orphaned files after a failed delete, a backup that captures the
-database but not the exports, path handling on a platform that treats
-separators differently, and a directory the deployment has to create and keep
-writable. Deleting a report becomes a DELETE, and the export is included in the
-one artifact this project already tells you to back up (README, "Database").
+**The file lives on disk; the row holds the metadata.** It used to be a BLOB in
+`content`, which removed a class of bugs — no orphans, no directory to keep
+writable, deleting was a DELETE — and was the right trade while exports were
+small. It stopped being right at the cap: fifty retained reports of up to
+50,000 rows each sit inside the same SQLite file that answers every analytics
+query, and downloading one read the whole thing into the worker's memory before
+a byte reached the socket.
 
-The seam is `content`: if exports ever grow past what is comfortable inline,
-this column becomes a key into object storage and nothing else has to move.
+`storage_path` is that former seam, used as intended: a key rather than the
+bytes. It is relative to `STOCKSYNC_EXPORT_DIR`, so moving the directory or
+restoring onto a differently-laid-out host does not invalidate every row.
+See `app/services/report_store.py` for what the move costs and how it is paid.
 """
 
 from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Index, Integer, LargeBinary, String, Text
+from sqlalchemy import ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -67,11 +69,13 @@ class Report(IdMixin, TimestampMixin, Base):
 
     filename: Mapped[str] = mapped_column(String(255), nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    #: Recorded separately from ``len(content)`` so the size survives in the
-    #: history after the bytes are cleared.
+    #: Recorded on the row so the size survives in the history whether or not
+    #: the file is still there — a pruned or swept export still reports what it
+    #: weighed.
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    #: Key into ``STOCKSYNC_EXPORT_DIR`` — ``{workspace_id}/{report_id}.{fmt}``.
     #: Null while preparing, and null again once the report has failed.
-    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     # Both halves of the error envelope (§16), stored so the Export Centre can
     # show the same sentence the user would have seen, rather than inventing one.

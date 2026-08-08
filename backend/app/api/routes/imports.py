@@ -6,7 +6,7 @@ import logging
 
 from fastapi import APIRouter, File, Query, Response, UploadFile, status
 
-from app.api.deps import CurrentUser, DbDep, SettingsDep
+from app.api.deps import CurrentUser, DbDep, SettingsDep, enforce_rate_limit
 from app.core.errors import AppError
 from app.models import LinkedSheet
 from app.repositories import (
@@ -125,6 +125,8 @@ def upload_inventory(
     operation is well under a second, and a background job would add a polling
     endpoint and a job table for no benefit the user can perceive.
     """
+    # After validation, so a rejected upload does not spend the user's budget.
+    enforce_rate_limit(settings, user, operation="import", what="import")
     return _import(
         db,
         user=user,
@@ -153,6 +155,9 @@ def import_from_google_sheet(
     same validation, same upsert, same response. Import History records the
     method as ``google_sheet``, which is the only difference.
     """
+    # Shares the import budget with uploads: both parse a spreadsheet on the
+    # same thread, and a per-doorway limit would just be two ways to spend it.
+    enforce_rate_limit(settings, user, operation="import", what="import")
     return _sheet_import(db, user=user, settings=settings, url=body.url)
 
 

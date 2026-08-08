@@ -45,19 +45,19 @@ RestartSec=5s
 StartLimitBurst=3
 StartLimitIntervalSec=60
 
-# The SQLite file, its WAL sidecars, and generated reports are the only paths
-# that need to be writable.
+# The SQLite file, its WAL sidecars, generated exports and snapshots are the
+# only paths that need to be writable.
 #
-# These are under backend/, not the repo root. STOCKSYNC_DATABASE_URL holds a
-# RELATIVE path (./data/stocksync.db), and config.sqlite_path() resolves it
-# against the process working directory — which is WorkingDirectory above. Run
-# alembic or app.cli from anywhere else and you get a different, empty database
-# file, which looks exactly like data loss. Always cd to backend/ first.
+# All at the repo root regardless of where a command is run from: config.py
+# resolves a relative STOCKSYNC_DATABASE_URL, EXPORT_DIR or BACKUP_DIR against
+# the repo root, not the working directory. That is what stops `alembic` run
+# from one folder and the server started from another using two different
+# database files.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
 ProtectHome=true
-ReadWritePaths=/srv/stocksync/backend/data /srv/stocksync/backend/storage
+ReadWritePaths=/srv/stocksync/data /srv/stocksync/storage
 
 [Install]
 WantedBy=multi-user.target

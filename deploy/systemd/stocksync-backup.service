@@ -1,0 +1,38 @@
+# StockSync Analytics — one database snapshot.
+#
+# Paired with stocksync-backup.timer, which decides when. Split that way so a
+# snapshot can also be taken on demand before a risky migration:
+#
+#   sudo systemctl start stocksync-backup
+#
+#   sudo cp deploy/systemd/stocksync-backup.* /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now stocksync-backup.timer
+#   systemctl list-timers stocksync-backup.timer
+
+[Unit]
+Description=StockSync Analytics database snapshot
+# Not `Requires=`: a snapshot is worth taking whether or not the API is up, and
+# is arguably worth more when it is down.
+After=network.target
+
+[Service]
+Type=oneshot
+User=stocksync
+Group=stocksync
+
+# Same working directory as the API so it reads the same .env, and therefore
+# the same STOCKSYNC_DATABASE_URL and STOCKSYNC_BACKUP_DIR. A backup that
+# snapshots a different database than the one being served is the failure this
+# avoids.
+WorkingDirectory=/srv/stocksync/backend
+ExecStart=/srv/stocksync/backend/.venv/bin/python -m app.cli backup
+
+# `app.cli backup` exits non-zero when the snapshot fails, so systemd records a
+# failed unit rather than a green timer over a backup that never happened.
+# `systemctl is-failed stocksync-backup` is the thing to alert on.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/srv/stocksync/data /srv/stocksync/storage

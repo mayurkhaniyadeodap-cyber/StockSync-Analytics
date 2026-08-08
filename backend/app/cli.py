@@ -3,22 +3,32 @@
     python -m app.cli seed                                    # default administrator
     python -m app.cli seed --email you@deodap.in --name "Your Name"
     python -m app.cli set-password --email you@deodap.in
+    python -m app.cli backup                                   # snapshot + prune
     python -m app.cli check-inventory                          # report inconsistencies
     python -m app.cli check-inventory --repair                 # and fix them
 
 There is no self-registration: this is an internal tool where accounts are
 issued.
 
-Run with no arguments, ``seed`` creates the default administrator below so a
-freshly migrated database is always signed into with the documented
-credentials. That password is public — it is in this file and in the README —
-so it is a development convenience only. Change it with ``set-password``
-before any deployment that is reachable by anyone else.
+**No account is ever created with a password this file knows.** There used to
+be a built-in one for the default administrator, documented in the README and
+therefore public. It was a development convenience that shipped: the production
+deployment ran on it, which made the admin credential of a live internet-facing
+service a constant in a public repository. A password nobody typed is a
+password nobody owns, so there is no longer a way to get an account without
+supplying one.
 
-Passwords are otherwise prompted for interactively rather than passed as
-arguments, so they never land in shell history or the process list. For
-scripted setup pass --password-env NAME and put the value in that environment
-variable, which is still better than an argv flag.
+Passwords are read from the environment or prompted for interactively, never
+passed as arguments, so they never land in shell history or the process list:
+
+* ``--password-env NAME`` reads that variable. Named explicitly, so an unset
+  one is an error rather than a cue to prompt — a scripted caller wants to
+  fail, not block.
+* Otherwise ``STOCKSYNC_ADMIN_PASSWORD``, which is what makes ``reset-db``
+  work unattended in development.
+* Otherwise an interactive prompt, twice, with no echo.
+
+None of these paths writes the value anywhere it can be read back.
 """
 
 from __future__ import annotations
@@ -33,58 +43,74 @@ from collections.abc import Sequence
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.core.security import hash_password
 from app.db.session import get_session_factory
 from app.models import InventoryItem, User, UserPreferences, Workspace, normalize_email
+from app.services import backup as backup_service
 
 DEFAULT_WORKSPACE_NAME = "Deodap Retail"
 DEFAULT_WORKSPACE_SLUG = "deodap"
 MIN_PASSWORD_LENGTH = 12
 
-# The administrator issued to every new database. Documented in the README, so
-# it is a known credential by design and carries no secrecy — see the module
-# docstring.
+# The administrator issued to every new database. The address is a convention,
+# not a credential — there is no password here, by design.
 DEFAULT_ADMIN_EMAIL = "admin@deodap.in"
 DEFAULT_ADMIN_NAME = "Administrator"
 DEFAULT_ADMIN_ROLE = "Admin"
-DEFAULT_ADMIN_PASSWORD = "StockSync@123"  # noqa: S105
+
+#: Consulted when no --password-env is named. Having one conventional variable
+#: is what lets `reset-db` rebuild and seed unattended without this file
+#: carrying a password of its own.
+#:
+#: The suppression is for the *name* of an environment variable, not a value —
+#: S105 matches any constant whose name contains "PASSWORD". An identical
+#: suppression used to sit on a real password two lines from here, which is how
+#: that one survived review, so: this string is a lookup key, and
+#: `test_cli_credentials.py` fails the build if a password constant reappears
+#: under any name.
+ADMIN_PASSWORD_ENV = "STOCKSYNC_ADMIN_PASSWORD"  # noqa: S105
 
 
-def _read_password(
-    password_env: str | None = None,
-    confirm: bool = True,
-    *,
-    default: str | None = None,
-) -> str:
+def _read_password(password_env: str | None = None, confirm: bool = True) -> str:
     """Read a password without it ever appearing in argv.
 
-    Order: the named environment variable, then ``default`` (supplied only when
-    seeding the documented default administrator), then an interactive prompt.
-    There is deliberately no "detect a non-interactive terminal and generate
-    one" path — ``sys.stdin.isatty()`` is not reliable across Windows terminals
-    (it reports True under redirection in Git Bash), so that branch would hang
-    precisely where automation needs it not to.
+    Order: the named environment variable, then ``STOCKSYNC_ADMIN_PASSWORD``,
+    then an interactive prompt. There is deliberately no "detect a
+    non-interactive terminal and generate one" path — ``sys.stdin.isatty()`` is
+    not reliable across Windows terminals (it reports True under redirection in
+    Git Bash), so that branch would hang precisely where automation needs it
+    not to. The EOF below is the honest version of that check: it fires only
+    once a prompt has actually failed to find a terminal.
     """
-    if password_env:
-        value = os.environ.get(password_env)
-        if not value:
-            raise SystemExit(f"Environment variable {password_env} is unset or empty.")
+    name = password_env or ADMIN_PASSWORD_ENV
+    value = os.environ.get(name)
+    if value:
         if len(value) < MIN_PASSWORD_LENGTH:
-            raise SystemExit(f"{password_env} must be at least {MIN_PASSWORD_LENGTH} characters.")
+            raise SystemExit(f"{name} must be at least {MIN_PASSWORD_LENGTH} characters.")
         return value
 
-    if default is not None:
-        return default
+    if password_env:
+        # Named explicitly, so an empty one is a mistake in the caller's setup.
+        # Falling through to a prompt would hang a deployment script instead.
+        raise SystemExit(f"Environment variable {password_env} is unset or empty.")
 
-    while True:
-        password = getpass.getpass("Password: ")
-        if len(password) < MIN_PASSWORD_LENGTH:
-            print(f"Too short — use at least {MIN_PASSWORD_LENGTH} characters.")
-            continue
-        if confirm and password != getpass.getpass("Confirm password: "):
-            print("Those didn't match. Try again.")
-            continue
-        return password
+    try:
+        while True:
+            password = getpass.getpass("Password: ")
+            if len(password) < MIN_PASSWORD_LENGTH:
+                print(f"Too short — use at least {MIN_PASSWORD_LENGTH} characters.")
+                continue
+            if confirm and password != getpass.getpass("Confirm password: "):
+                print("Those didn't match. Try again.")
+                continue
+            return password
+    except (EOFError, KeyboardInterrupt):
+        raise SystemExit(
+            "No password supplied and no terminal to ask for one.\n"
+            f"Set {ADMIN_PASSWORD_ENV}, or pass --password-env NAME naming a variable "
+            "that holds it."
+        ) from None
 
 
 def _get_or_create_workspace(db: Session) -> Workspace:
@@ -109,9 +135,9 @@ def seed(
         return 2
 
     normalized = normalize_email(email)
-    # Only the documented administrator gets a built-in password; any other
-    # account still has to supply one, so this is a fixed bootstrap rather than
-    # a general "seed without a password" escape hatch.
+    # Only affects whether re-seeding is treated as success and whether --name
+    # may be omitted. It no longer selects a password: every account, this one
+    # included, is created with one the operator supplied.
     is_default_admin = normalized == DEFAULT_ADMIN_EMAIL
 
     with get_session_factory()() as db:
@@ -131,9 +157,7 @@ def seed(
             print(f"{email} already exists. Use set-password to change its password.")
             return 1
 
-        password = _read_password(
-            password_env, default=DEFAULT_ADMIN_PASSWORD if is_default_admin else None
-        )
+        password = _read_password(password_env)
         user = User(
             workspace_id=workspace.id,
             email=email.strip(),
@@ -149,9 +173,10 @@ def seed(
         db.add(UserPreferences(user_id=user.id))
         db.commit()
 
+        # The password is deliberately absent from this line. It was printed
+        # here once, which put it in shell history, CI logs and journald — all
+        # places a credential outlives the terminal that created it.
         print(f"Created {user.full_name} <{user.email}> in workspace {workspace.name!r}.")
-        if is_default_admin and password_env is None:
-            print(f"Password: {DEFAULT_ADMIN_PASSWORD} — change it with set-password before use.")
     return 0
 
 
@@ -172,6 +197,26 @@ def set_password(email: str, password_env: str | None = None) -> int:
                 session.revoked_at = user.updated_at
         db.commit()
         print(f"Password updated for {user.email}. All existing sessions were signed out.")
+    return 0
+
+
+def backup() -> int:
+    """Take a consistent database snapshot and prune old ones.
+
+    Meant for cron or a systemd timer — see ``deploy/README.md``. Exits non-zero
+    when the snapshot fails, so a scheduler that checks exit codes reports it
+    rather than logging success into the void.
+    """
+    settings = get_settings()
+    try:
+        destination = backup_service.run(settings)
+    except backup_service.BackupError as caught:
+        print(str(caught), file=sys.stderr)
+        return 1
+
+    kept = sorted(settings.backup_dir.glob("stocksync-*.db"))
+    print(f"Wrote {destination} ({destination.stat().st_size:,} bytes).")
+    print(f"Keeping {len(kept)} of at most {settings.backup_keep} snapshots.")
     return 0
 
 
@@ -259,6 +304,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="read the password from this environment variable instead of prompting",
     )
 
+    sub.add_parser("backup", help="write a database snapshot and prune old ones")
+
     check_parser = sub.add_parser(
         "check-inventory",
         help="report SKUs whose quantity_on_hand and total_qty disagree",
@@ -270,6 +317,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
 
     args = parser.parse_args(argv)
+
+    if args.command == "backup":
+        return backup()
 
     if args.command == "check-inventory":
         return check_inventory(args.repair)

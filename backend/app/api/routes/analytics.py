@@ -27,7 +27,7 @@ from typing import Annotated, cast
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
 
-from app.api.deps import CurrentUser, DbDep
+from app.api.deps import CurrentUser, DbDep, SettingsDep, enforce_rate_limit
 from app.core.errors import AppError
 from app.models import COMPLAINT_COLUMNS, InventoryItem, SkuDailyMetric
 from app.repositories.analytics import SkuFact, SkuFactRepository
@@ -509,6 +509,7 @@ def _inventory_payload(
 def rebuild(
     user: CurrentUser,
     db: DbDep,
+    settings: SettingsDep,
     days: int | None = Query(default=None, ge=1, le=3650),
 ) -> RebuildResultPayload:
     """Recompute ``sku_daily_metrics`` from the order lines.
@@ -516,6 +517,10 @@ def rebuild(
     Runs inline rather than as a job: it is a few seconds at the measured rate,
     and a user who asks for a rebuild is waiting for the answer.
     """
+    # Inline means this one holds a request open *and* takes SQLite's write
+    # lock to swap the rebuilt rollup in — measured at ~11s on half a million
+    # rows. Several at once is the shape that makes the whole app feel stalled.
+    enforce_rate_limit(settings, user, operation="rebuild", what="recompute")
     result = (
         metrics_service.refresh_recent(db, workspace_id=user.workspace_id, days=days)
         if days

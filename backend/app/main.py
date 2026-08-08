@@ -17,6 +17,8 @@ from app.core.errors import register_exception_handlers
 from app.core.headers import SecurityHeadersMiddleware
 from app.core.logging import configure_logging
 from app.db.session import get_session_factory, ping_database
+from app.repositories.reports import ReportRepository
+from app.services import report_store
 from app.services.reports import reclaim_interrupted as reclaim_interrupted_reports
 from app.services.sync import reclaim_interrupted_runs
 from app.workers import runner
@@ -63,6 +65,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             with get_session_factory()() as db:
                 reclaim_interrupted_runs(db)
                 reclaim_interrupted_reports(db)
+                # Export files whose row has gone: a crash between deleting the
+                # file and deleting the row, or a `.part` left by an interrupted
+                # write. One directory walk, and it runs after the report
+                # reclaim so rows failed just above are counted as gone.
+                report_store.sweep_orphans(settings, ReportRepository(db).stored_paths())
         except SQLAlchemyError:
             # A schema that predates M3 is not a reason to refuse to boot.
             log.warning("could not reclaim interrupted sync runs", exc_info=True)

@@ -4,6 +4,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { ShopifyStatusProvider } from '../../contexts/ShopifyStatusContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
 
@@ -71,7 +72,17 @@ export function AppShell() {
           />
 
           <main className="main">
-            <Outlet />
+            {/* Inside the frame, so one broken page leaves the header and the
+                sidebar standing and the user can navigate out of it — the
+                outer boundary in App would replace the whole application.
+
+                Keyed on the path because a boundary does not reset itself:
+                without this, one page throwing would show its fallback for
+                every route afterwards, since the same instance stays mounted
+                across navigations. */}
+            <ErrorBoundary key={location.pathname} scope="This page" home="/dashboard">
+              <Outlet />
+            </ErrorBoundary>
           </main>
         </div>
 

@@ -76,10 +76,10 @@ describe('the password reveal', () => {
     await renderLogin();
     const user = userEvent.setup();
 
-    await user.type(passwordField(), 'StockSync@123');
+    await user.type(passwordField(), 'correct horse battery');
     await user.click(screen.getByRole('button', { name: 'Show password' }));
 
-    expect(passwordField().value).toBe('StockSync@123');
+    expect(passwordField().value).toBe('correct horse battery');
   });
 
   it('renames itself so a screen reader hears the state change', async () => {

@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Query, status
 from sqlalchemy import select
 
-from app.api.deps import CurrentUser, DbDep, SettingsDep
+from app.api.deps import CurrentUser, DbDep, SettingsDep, enforce_rate_limit
 from app.config import Settings
 from app.core.errors import AppError
 from app.models import ActivityEvent
@@ -240,6 +240,18 @@ class SyncNotFoundError(AppError):
 
 
 def _sync_state(db: DbDep, workspace_id: int) -> SyncState:
+    # Recovery cannot depend on a restart or on someone pressing Sync now.
+    # Start-up reclaim misses a run killed less than STALE_RUN_AFTER before the
+    # process came back — too fresh to reclaim then, and nothing looks again —
+    # so it stays `running` forever, blocks every future sync, and the UI polls
+    # a progress bar that will never move.
+    #
+    # This is the poll, so a dead run is cleared within one client tick. It is
+    # a write on a read path, which is why the reclaim is written to select
+    # first and commit only when there is genuinely something stale: the common
+    # case is one indexed SELECT returning nothing.
+    sync_service.reclaim_interrupted_runs(db)
+
     runs = SyncRunRepository(db)
     current = runs.active(workspace_id) or runs.latest(workspace_id)
     return SyncState(
@@ -266,6 +278,11 @@ def start_sync(user: CurrentUser, db: DbDep, settings: SettingsDep) -> SyncState
     seconds to minutes, and holding the request open for it would time out on
     any proxy in front of the API. The client polls ``GET /shopify/sync``.
     """
+    # Distinct from "a sync is already running", which the service raises: that
+    # one says *wait for this*, this one says *you have started several*. A
+    # sync can legitimately finish and be restarted, which is the loop this
+    # bounds.
+    enforce_rate_limit(settings, user, operation="sync", what="sync")
     sync_service.start_sync(
         db,
         settings,

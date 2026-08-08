@@ -6,8 +6,9 @@ import logging
 import urllib.parse
 
 from fastapi import APIRouter, Query, Response, status
+from fastapi.responses import FileResponse
 
-from app.api.deps import CurrentUser, DbDep, SettingsDep
+from app.api.deps import CurrentUser, DbDep, SettingsDep, enforce_rate_limit
 from app.repositories.reports import ReportRepository
 from app.schemas.reports import (
     KIND_PATTERN,
@@ -58,6 +59,9 @@ def create(
     user: CurrentUser, db: DbDep, settings: SettingsDep, body: ReportCreate
 ) -> ReportPayload:
     """202: the row comes back "preparing" and the file is built on the worker."""
+    # A 50,000-row PDF is the slowest thing this application renders, and it
+    # renders on the same single worker thread as every sync and import.
+    enforce_rate_limit(settings, user, operation="report", what="report")
     report = reports_service.request_report(
         db,
         settings,
@@ -106,22 +110,25 @@ def detail(user: CurrentUser, db: DbDep, report_id: int) -> ReportPayload:
 
 
 @router.get("/{report_id}/download", summary="Download the file")
-def download(user: CurrentUser, db: DbDep, report_id: int) -> Response:
-    report, content = reports_service.download(
-        db, workspace_id=user.workspace_id, report_id=report_id
+def download(user: CurrentUser, db: DbDep, settings: SettingsDep, report_id: int) -> Response:
+    report, path = reports_service.download(
+        db, settings, workspace_id=user.workspace_id, report_id=report_id
     )
     # RFC 6266: the plain filename for old clients, the percent-encoded UTF-8
     # one for everything else. The name is generated, but quoting it means a
     # future user-supplied name can never break out of the header.
     quoted = urllib.parse.quote(report.filename)
-    return Response(
-        content=content,
+    # FileResponse streams the file in chunks and sets Content-Length from the
+    # file itself. The previous Response(content=...) read the whole export into
+    # this worker's memory first, which at the 50,000-row cap is megabytes held
+    # for the length of a download the client may be doing over a slow link.
+    return FileResponse(
+        path,
         media_type=report_files.CONTENT_TYPES.get(report.fmt, "application/octet-stream"),
         headers={
             "Content-Disposition": (
                 f"attachment; filename=\"{report.filename}\"; filename*=UTF-8''{quoted}"
             ),
-            "Content-Length": str(len(content)),
             # A report is a snapshot and its id is unique, so it can be cached
             # hard — but only by the one browser that authenticated for it.
             "Cache-Control": "private, max-age=31536000, immutable",
@@ -130,6 +137,6 @@ def download(user: CurrentUser, db: DbDep, report_id: int) -> Response:
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a report")
-def remove(user: CurrentUser, db: DbDep, report_id: int) -> Response:
-    reports_service.delete(db, workspace_id=user.workspace_id, report_id=report_id)
+def remove(user: CurrentUser, db: DbDep, settings: SettingsDep, report_id: int) -> Response:
+    reports_service.delete(db, settings, workspace_id=user.workspace_id, report_id=report_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

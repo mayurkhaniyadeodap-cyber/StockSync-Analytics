@@ -37,35 +37,48 @@ Requires Python 3.12+ and Node 20+. **No database server to install** — SQLite
 
 Then open <http://localhost:5173>. The API docs are at <http://127.0.0.1:8000/api/docs>.
 
-### Default login
+### The first account
 
 There is no self-registration — accounts are issued. `./tasks.ps1 seed` creates
-one administrator, and `./tasks.ps1 reset-db` recreates it, so a freshly built
-database can always be signed into with:
+one administrator:
 
 | | |
 |---|---|
 | Email | `admin@deodap.in` |
-| Password | `StockSync@123` |
 | Name | Administrator |
 | Role | Admin |
 
-The password is stored as an argon2id hash like every other; only the *initial*
-value is fixed.
+**You choose the password.** There is no built-in one and no default: `seed`
+reads `STOCKSYNC_ADMIN_PASSWORD`, or the variable named by `--password-env`, or
+prompts for it twice with no echo. If it can find none of those it fails rather
+than inventing one. Minimum 12 characters.
 
-> **This credential is public** — it is in this README and in
-> [backend/app/cli.py](backend/app/cli.py), so treat it as a local development
-> convenience. Change it before the app is reachable by anyone else:
+> An earlier version shipped a fixed password here and in
+> [backend/app/cli.py](backend/app/cli.py). It was meant as a local convenience
+> and reached production, which made the admin credential of a live service a
+> constant in a public repository. **If you deployed before this change, rotate
+> that account now:**
 >
 > ```powershell
 > cd backend
 > .\.venv\Scripts\python.exe -m app.cli set-password --email admin@deodap.in
 > ```
 
-To issue a different account, pass an address. `seed` for anything other than
-`admin@deodap.in` — and `set-password` always — prompts for the password twice
-and never accepts one as an argument, so it stays out of shell history. For
-scripted setup use `--password-env NAME`.
+For a scripted or unattended setup, put the value in the environment rather
+than on the command line, where it would be visible in `ps` and shell history:
+
+```powershell
+$env:STOCKSYNC_ADMIN_PASSWORD = Read-Host -AsSecureString | ConvertFrom-SecureString -AsPlainText
+.\tasks.ps1 reset-db
+```
+
+```bash
+read -rs STOCKSYNC_ADMIN_PASSWORD && export STOCKSYNC_ADMIN_PASSWORD
+python -m app.cli seed
+```
+
+To issue a different account, pass an address — `--name` is required for any
+address other than the administrator's.
 
 ```powershell
 cd backend

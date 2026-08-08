@@ -26,12 +26,18 @@ import {
   requested,
   routes,
 } from '../../../tests/fixtures/analytics';
+import { ShopifyStatusProvider } from '../../contexts/ShopifyStatusContext';
 import { ToastProvider } from '../../contexts/ToastContext';
 
 function renderPage(element: React.ReactNode) {
   return render(
     <MemoryRouter>
-      <ToastProvider>{element}</ToastProvider>
+      <ToastProvider>
+        {/* `useInsights` reads `changedAt` from here, the same signal the
+            dashboard watches, so a finished sync clears the "Sync in progress…"
+            banner on these pages too. */}
+        <ShopifyStatusProvider>{element}</ShopifyStatusProvider>
+      </ToastProvider>
     </MemoryRouter>,
   );
 }
