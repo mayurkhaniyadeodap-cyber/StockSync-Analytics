@@ -25,8 +25,12 @@ Group=stocksync
 # the same STOCKSYNC_DATABASE_URL and STOCKSYNC_BACKUP_DIR. A backup that
 # snapshots a different database than the one being served is the failure this
 # avoids.
-WorkingDirectory=/srv/stocksync/backend
-ExecStart=/srv/stocksync/backend/.venv/bin/python -m app.cli backup
+WorkingDirectory=/home/ubuntu/StockSync-Analytics/backend
+
+# The backend venv, not the system python: `app.cli` imports the application,
+# which needs SQLAlchemy and pydantic-settings. `/usr/bin/python3` would fail on
+# the import and the timer would report a failed backup every night.
+ExecStart=/home/ubuntu/StockSync-Analytics/backend/.venv/bin/python -m app.cli backup
 
 # `app.cli backup` exits non-zero when the snapshot fails, so systemd records a
 # failed unit rather than a green timer over a backup that never happened.
@@ -34,5 +38,11 @@ ExecStart=/srv/stocksync/backend/.venv/bin/python -m app.cli backup
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/srv/stocksync/data /srv/stocksync/storage
+
+# Same reasoning as the API unit: `ProtectHome=true` empties /home inside the
+# namespace, so the venv named above would not exist and the snapshot would
+# fail before opening the database. `tmpfs` still hides every other home.
+ProtectHome=tmpfs
+BindPaths=/home/ubuntu/StockSync-Analytics
+
+ReadWritePaths=/home/ubuntu/StockSync-Analytics/data /home/ubuntu/StockSync-Analytics/storage

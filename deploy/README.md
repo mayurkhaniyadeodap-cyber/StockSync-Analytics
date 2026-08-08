@@ -111,18 +111,55 @@ drops the cookie, so login appears to succeed and immediately bounces back.
 
 ---
 
+## Where everything lives
+
+Every path below assumes this layout, which is what the systemd units and the
+nginx site are written against:
+
+| Path | What |
+| --- | --- |
+| `/home/ubuntu/StockSync-Analytics` | The checkout. `PROJECT` below. |
+| `/home/ubuntu/StockSync-Analytics/backend/.venv` | Python environment |
+| `/home/ubuntu/StockSync-Analytics/data` | SQLite database and WAL sidecars |
+| `/home/ubuntu/StockSync-Analytics/storage` | Generated exports and snapshots |
+
+If yours differs, change it in four places and nowhere else:
+`deploy/systemd/stocksync-api.service`, `deploy/systemd/stocksync-backup.service`,
+`deploy/nginx/stocksync.conf`, and this file.
+
 ## First deploy
 
+The units run as `stocksync`, a service account with no login. Running the app
+as `ubuntu` would mean anything that compromised it owned the account you SSH
+in with.
+
 ```bash
-sudo useradd --system --home /srv/stocksync --shell /usr/sbin/nologin stocksync
-sudo mkdir -p /srv/stocksync && sudo chown stocksync:stocksync /srv/stocksync
-sudo -u stocksync git clone <repo> /srv/stocksync
+sudo useradd --system --shell /usr/sbin/nologin stocksync
+
+# The checkout is under /home/ubuntu, so `stocksync` needs to traverse it.
+# Ubuntu creates home directories 0750, which stops that — and the failure is
+# opaque: systemd reports 203/EXEC for a binary that is plainly there, and
+# nginx answers 403 for a file it can see.
+sudo chmod o+x /home/ubuntu
+
+sudo git clone <repo> /home/ubuntu/StockSync-Analytics
+sudo chown -R stocksync:stocksync /home/ubuntu/StockSync-Analytics
+
+# ReadWritePaths= in both units requires these to exist, or the unit fails
+# with a mount-namespace error rather than anything about the application.
+sudo -u stocksync mkdir -p /home/ubuntu/StockSync-Analytics/{data,storage}
+```
+
+Check it worked before going further — this is the failure that wastes an hour:
+
+```bash
+sudo -u stocksync stat /home/ubuntu/StockSync-Analytics/backend >/dev/null && echo "stocksync can reach the project"
 ```
 
 ### 1. Backend
 
 ```bash
-cd /srv/stocksync/backend
+cd /home/ubuntu/StockSync-Analytics/backend
 sudo -u stocksync python3 -m venv .venv
 sudo -u stocksync .venv/bin/pip install -e .
 ```
@@ -130,7 +167,7 @@ sudo -u stocksync .venv/bin/pip install -e .
 ### 2. Configuration
 
 ```bash
-cd /srv/stocksync
+cd /home/ubuntu/StockSync-Analytics
 sudo -u stocksync cp .env.example .env
 sudo chmod 600 .env
 sudo -u stocksync backend/.venv/bin/python -c \
@@ -139,7 +176,7 @@ sudo -u stocksync backend/.venv/bin/python -c \
   "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
-Edit `/srv/stocksync/.env`:
+Edit `/home/ubuntu/StockSync-Analytics/.env`:
 
 ```ini
 STOCKSYNC_ENV=production
@@ -163,8 +200,9 @@ through the UI, which stores it encrypted.
 ### 3. Database
 
 ```bash
-cd /srv/stocksync/backend
-sudo -u stocksync mkdir -p /srv/stocksync/data /srv/stocksync/storage
+# data/ and storage/ were created in "First deploy" — both units list them in
+# ReadWritePaths= and will not start without them.
+cd /home/ubuntu/StockSync-Analytics/backend
 sudo -u stocksync .venv/bin/alembic upgrade head
 sudo -u stocksync ADMIN_PW='<a strong password>' \
   .venv/bin/python -m app.cli seed --password-env ADMIN_PW
@@ -176,7 +214,7 @@ could read it from `ps`.
 ### 4. Frontend
 
 ```bash
-cd /srv/stocksync/frontend
+cd /home/ubuntu/StockSync-Analytics/frontend
 sudo -u stocksync npm ci
 sudo -u stocksync npm run build     # -> frontend/dist
 ```
@@ -184,12 +222,12 @@ sudo -u stocksync npm run build     # -> frontend/dist
 ### 5. Services
 
 ```bash
-sudo cp /srv/stocksync/deploy/systemd/stocksync-api.service /etc/systemd/system/
+sudo cp /home/ubuntu/StockSync-Analytics/deploy/systemd/stocksync-api.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now stocksync-api
 systemctl status stocksync-api          # confirm it is running before nginx
 
-sudo cp /srv/stocksync/deploy/nginx/stocksync.conf /etc/nginx/sites-available/stocksync
+sudo cp /home/ubuntu/StockSync-Analytics/deploy/nginx/stocksync.conf /etc/nginx/sites-available/stocksync
 sudo ln -sf /etc/nginx/sites-available/stocksync /etc/nginx/sites-enabled/
 sudo nginx -t && sudo systemctl reload nginx
 ```
@@ -243,16 +281,16 @@ stocksync-api`.
 ## Updating
 
 ```bash
-cd /srv/stocksync && sudo -u stocksync git pull
+cd /home/ubuntu/StockSync-Analytics && sudo -u stocksync git pull
 
 # alembic.ini sets `script_location = alembic` and `prepend_sys_path = .`, both
 # relative to the working directory — so this must run from backend/, not the
 # repo root with -c. Same reason the app finds ../.env from there.
-cd /srv/stocksync/backend
+cd /home/ubuntu/StockSync-Analytics/backend
 sudo -u stocksync .venv/bin/pip install -e .
 sudo -u stocksync .venv/bin/alembic upgrade head
 
-cd /srv/stocksync/frontend
+cd /home/ubuntu/StockSync-Analytics/frontend
 sudo -u stocksync npm ci && sudo -u stocksync npm run build
 
 sudo systemctl restart stocksync-api
@@ -263,7 +301,7 @@ nginx serves `dist/` from disk, so a frontend-only change needs no reload.
 ## Rotating a password
 
 ```bash
-cd /srv/stocksync/backend
+cd /home/ubuntu/StockSync-Analytics/backend
 sudo -u stocksync NEW_PW='<new password>' \
   .venv/bin/python -m app.cli set-password --email admin@deodap.in --password-env NEW_PW
 ```
@@ -285,7 +323,7 @@ file has gone is reported as "not ready" rather than as an error.
 ### Automatic snapshots
 
 ```bash
-sudo cp /srv/stocksync/deploy/systemd/stocksync-backup.* /etc/systemd/system/
+sudo cp /home/ubuntu/StockSync-Analytics/deploy/systemd/stocksync-backup.* /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now stocksync-backup.timer
 systemctl list-timers stocksync-backup.timer
@@ -298,7 +336,7 @@ its next opportunity. Retention keeps `STOCKSYNC_BACKUP_KEEP` snapshots
 On demand — do this before any migration:
 
 ```bash
-cd /srv/stocksync/backend
+cd /home/ubuntu/StockSync-Analytics/backend
 sudo -u stocksync .venv/bin/python -m app.cli backup
 ```
 
@@ -314,7 +352,7 @@ exits non-zero on failure, so systemd records it:
 
 ```bash
 systemctl is-failed stocksync-backup      # alert on this
-ls -lh /srv/stocksync/storage/backups/    # and on the newest file's age
+ls -lh /home/ubuntu/StockSync-Analytics/storage/backups/    # and on the newest file's age
 ```
 
 ### Offsite
@@ -322,7 +360,8 @@ ls -lh /srv/stocksync/storage/backups/    # and on the newest file's age
 Snapshots on the same disk as the database do not survive losing the disk:
 
 ```bash
-rsync -a /srv/stocksync/storage/backups/ backup-host:/srv/stocksync-backups/
+# The destination is a path on the backup host, not on this server.
+rsync -a /home/ubuntu/StockSync-Analytics/storage/backups/ backup-host:/var/backups/stocksync/
 ```
 
 ### Restoring
@@ -335,17 +374,17 @@ sudo systemctl stop stocksync-api
 
 # Keep what you are replacing: a restore that turns out to be the wrong
 # snapshot is recoverable; one that overwrote the only other copy is not.
-sudo -u stocksync cp /srv/stocksync/data/stocksync.db \
-                     /srv/stocksync/data/stocksync.db.before-restore
+sudo -u stocksync cp /home/ubuntu/StockSync-Analytics/data/stocksync.db \
+                     /home/ubuntu/StockSync-Analytics/data/stocksync.db.before-restore
 
 # The -wal and -shm sidecars belong to the file being replaced. Left in place
 # they are applied on top of the restored database, silently reintroducing
 # part of what you just rolled back.
-sudo -u stocksync rm -f /srv/stocksync/data/stocksync.db-wal \
-                        /srv/stocksync/data/stocksync.db-shm
+sudo -u stocksync rm -f /home/ubuntu/StockSync-Analytics/data/stocksync.db-wal \
+                        /home/ubuntu/StockSync-Analytics/data/stocksync.db-shm
 
-sudo -u stocksync cp /srv/stocksync/storage/backups/stocksync-YYYYMMDD-HHMMSS.db \
-                     /srv/stocksync/data/stocksync.db
+sudo -u stocksync cp /home/ubuntu/StockSync-Analytics/storage/backups/stocksync-YYYYMMDD-HHMMSS.db \
+                     /home/ubuntu/StockSync-Analytics/data/stocksync.db
 
 sudo systemctl start stocksync-api
 curl -s http://localhost:8000/api/health
@@ -355,7 +394,7 @@ A snapshot older than your last deploy predates its migrations, so check the
 schema before serving traffic:
 
 ```bash
-cd /srv/stocksync/backend
+cd /home/ubuntu/StockSync-Analytics/backend
 sudo -u stocksync .venv/bin/alembic current    # compare against `alembic heads`
 sudo -u stocksync .venv/bin/alembic upgrade head
 ```

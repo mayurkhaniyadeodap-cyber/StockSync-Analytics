@@ -2,6 +2,7 @@
 #
 #   sudo cp deploy/systemd/stocksync-api.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
+#   sudo systemd-analyze verify /etc/systemd/system/stocksync-api.service
 #   sudo systemctl enable --now stocksync-api
 #   systemctl status stocksync-api
 #
@@ -15,15 +16,32 @@ Description=StockSync Analytics API
 After=network-online.target
 Wants=network-online.target
 
+# These belong in [Unit], not [Service]. systemd moved the start rate limiter
+# to the unit in v229; left under [Service] they are parsed as unknown keys,
+# logged as a warning and ignored — so a permanently misconfigured server
+# restarts forever instead of stopping after three attempts, and the real error
+# scrolls out of the journal.
+#
+# A config error is permanent: give up after 3 attempts in a minute so
+# `systemctl status` shows the failure that matters.
+StartLimitBurst=3
+StartLimitIntervalSec=60
+
 [Service]
 Type=exec
+# NOTE: this user must own the project directory and be able to write data/ and
+# storage/. On a host where the checkout lives under /home/ubuntu that is
+# usually `ubuntu`, not a separate system account — check with `ls -ld` before
+# enabling, because a mismatch fails at startup with a permission error that
+# reads like a bug in the application.
 User=stocksync
 Group=stocksync
 
 # pydantic-settings reads env_file=("../.env", ".env") relative to the working
-# directory, so this picks up /srv/stocksync/.env — the repo-root .env, exactly
-# as it works in development. Nothing else needs to know where secrets live.
-WorkingDirectory=/srv/stocksync/backend
+# directory, so this picks up /home/ubuntu/StockSync-Analytics/.env — the
+# repo-root .env, exactly as it works in development. Nothing else needs to
+# know where secrets live.
+WorkingDirectory=/home/ubuntu/StockSync-Analytics/backend
 
 # --proxy-headers is not optional behind nginx. auth.py reads
 # request.client.host for both login throttling and the recorded session IP;
@@ -31,7 +49,7 @@ WorkingDirectory=/srv/stocksync/backend
 # failed logins trip the per-address lockout for every user at once.
 # --forwarded-allow-ips restricts that trust to the local proxy, so a client
 # cannot forge X-Forwarded-For and evade its own throttle.
-ExecStart=/srv/stocksync/backend/.venv/bin/uvicorn app.main:app \
+ExecStart=/home/ubuntu/StockSync-Analytics/backend/.venv/bin/uvicorn app.main:app \
     --host 127.0.0.1 \
     --port 8000 \
     --proxy-headers \
@@ -40,10 +58,19 @@ ExecStart=/srv/stocksync/backend/.venv/bin/uvicorn app.main:app \
 Restart=on-failure
 RestartSec=5s
 
-# A config error is permanent: restarting forever just fills the journal. Give
-# up after 3 attempts in a minute so `systemctl status` shows the real failure.
-StartLimitBurst=3
-StartLimitIntervalSec=60
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+
+# `ProtectHome=true` would make this unit unstartable now that the project
+# lives under /home. It replaces /home with an empty directory, so the venv in
+# ExecStart above simply would not exist and the service would fail 203/EXEC
+# before running a line of Python.
+#
+# `tmpfs` keeps the intent — every other user's home stays hidden from this
+# process — and BindPaths= puts back the one directory it actually needs.
+ProtectHome=tmpfs
+BindPaths=/home/ubuntu/StockSync-Analytics
 
 # The SQLite file, its WAL sidecars, generated exports and snapshots are the
 # only paths that need to be writable.
@@ -53,11 +80,7 @@ StartLimitIntervalSec=60
 # the repo root, not the working directory. That is what stops `alembic` run
 # from one folder and the server started from another using two different
 # database files.
-NoNewPrivileges=true
-PrivateTmp=true
-ProtectSystem=full
-ProtectHome=true
-ReadWritePaths=/srv/stocksync/data /srv/stocksync/storage
+ReadWritePaths=/home/ubuntu/StockSync-Analytics/data /home/ubuntu/StockSync-Analytics/storage
 
 [Install]
 WantedBy=multi-user.target
