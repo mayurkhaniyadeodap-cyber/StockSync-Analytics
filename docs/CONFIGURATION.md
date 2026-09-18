@@ -53,6 +53,78 @@ problem. Use `postgresql+psycopg://`.
 | `STOCKSYNC_COOKIE_SECURE` | `false` | Set `true` in production. Requires HTTPS — with it on over plain HTTP, browsers refuse to send the auth cookies and nobody can sign in. |
 | `STOCKSYNC_COOKIE_DOMAIN` | *(none)* | |
 
+## Outbound email
+
+Password reset and email verification are the only things that send mail. Both
+work by mailing a link, so neither works at all until this section is filled in.
+
+| Variable | Default | Notes |
+|---|---|---|
+| `STOCKSYNC_SMTP_HOST` | *(none)* | **This is the switch.** Unset means nothing is ever sent — see below. |
+| `STOCKSYNC_SMTP_PORT` | `587` | 587 with STARTTLS is what nearly every relay wants. |
+| `STOCKSYNC_SMTP_STARTTLS` | `true` | Leave on for port 587. |
+| `STOCKSYNC_SMTP_USERNAME` | *(none)* | Omit for a relay on the same network that needs no credentials. |
+| `STOCKSYNC_SMTP_PASSWORD` | *(none)* | For Gmail this is an **app password**, not the account password. |
+| `STOCKSYNC_SMTP_FROM` | *(falls back to the username)* | The envelope sender. With neither set it is `no-reply@localhost`, which most relays reject. |
+| `STOCKSYNC_SMTP_TIMEOUT_SECONDS` | `10` | |
+| `STOCKSYNC_APP_BASE_URL` | `http://localhost:5173` | Where the links point — the **browser's** origin, not the API's. |
+| `STOCKSYNC_PASSWORD_RESET_TTL_MINUTES` | `30` | 5–240. Applies to reset and verification links alike. |
+| `STOCKSYNC_MAIL_OUTBOX_DIR` | `./storage/outbox` | Where undeliverable mail is written. |
+
+### With no SMTP host, mail is not sent — it is spooled
+
+This is deliberate, and it is the single most common reason a link "was sent"
+and never arrived. With `STOCKSYNC_SMTP_HOST` unset, `mailer.send` writes the
+whole message to `storage/outbox/` as a `.eml` file and returns `False`. The
+start-up log says so:
+
+```
+WARNING  email: STOCKSYNC_SMTP_HOST is unset — password-reset and email-verification
+         links will NOT be delivered; each message is written to …/storage/outbox instead
+```
+
+In development that directory *is* the inbox: open the newest file and click
+the link. In production an unset host is a misconfiguration, and the warning at
+start-up is the only notice you get — the endpoints cannot tell you, because
+varying their response by whether mail was delivered is what leaks which
+addresses have accounts.
+
+The link is not in the log, only the path to the file. `RedactingFilter` scrubs
+`token=…` from every log record, which is correct — a reset link is a
+password-equivalent — and which is why logging the message never worked as a
+delivery mechanism.
+
+### Checking that it works
+
+There is no endpoint that will tell you, by design. Use the CLI:
+
+```powershell
+cd backend
+python -m app.cli send-test-email --to you@example.com
+```
+
+It prints the settings it resolved (never the password), sends one message, and
+exits non-zero if nothing left the machine. Any SMTP error appears in full on
+the log line above the failure.
+
+### Gmail
+
+Gmail refuses ordinary account passwords over SMTP. Turn on 2-Step Verification
+for the account, create an app password at
+<https://myaccount.google.com/apppasswords>, and use that:
+
+```ini
+STOCKSYNC_SMTP_HOST=smtp.gmail.com
+STOCKSYNC_SMTP_PORT=587
+STOCKSYNC_SMTP_STARTTLS=true
+STOCKSYNC_SMTP_USERNAME=you@gmail.com
+STOCKSYNC_SMTP_PASSWORD=<the 16-character app password>
+```
+
+Leave `STOCKSYNC_SMTP_FROM` unset unless the address is a verified alias on that
+account — Gmail rewrites the sender to the authenticated user anyway, and a
+mismatched one is a reason for the message to be filed as spam.
+
 ## Inventory import
 
 | Variable | Default | Notes |

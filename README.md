@@ -11,17 +11,28 @@ Internal portal for DeoDap that reconciles an imported inventory sheet against S
 | Frontend | React 19 · TypeScript · Vite · plain CSS with design tokens as custom properties |
 | Backend | Python 3.12 · FastAPI · SQLAlchemy 2.x · Alembic |
 | Database | SQLite — the supported default for the MVP and single-server deployments |
-| Charts | Hand-rolled SVG, ported from the prototype (no charting library) |
+| Charts | Hand-rolled SVG, no charting library — each has a wide and a compact drawing, see [Layout](#layout) |
 
 The database layer is dialect-agnostic: SQLite specifics are confined to [backend/app/db/session.py](backend/app/db/session.py) (engine construction, connection pragmas) and [backend/alembic/env.py](backend/alembic/env.py) (batch migrations). Moving to PostgreSQL means installing a driver and changing one environment variable — see [Moving to PostgreSQL later](#moving-to-postgresql-later).
 
 ## Source of truth for the UI
 
 - [docs/CONFIGURATION.md](docs/CONFIGURATION.md) — every environment variable, what it defaults to, and which ones production requires.
-- [docs/Strata_UIUX_Design_Document.md](docs/Strata_UIUX_Design_Document.md) — **authoritative** for layout, copy and the four states every screen must have.
-- [prototype/strata-prototype.html](prototype/strata-prototype.html) — the visual and interaction target. Open it in a browser and click through it. Design tokens, component classes and microcopy are lifted from here verbatim.
+- [frontend/src/styles/tokens.css](frontend/src/styles/tokens.css) — **authoritative** for colour, radius, shadow and spacing. Nothing else may hold a hex value.
+- [prototype/strata-prototype.html](prototype/strata-prototype.html) — where the component *structure* came from, and still a fair guide to class names and the four states every screen has.
 
-Where the two disagree, the design document wins and the conflict gets logged — six are recorded in IMPLEMENTATION_PLAN.md §5.
+**The prototype is no longer the visual target.** The palette moved to a blue
+primary on a light blue-grey page, radii went from 6px to 10px, cards gained a
+hairline shadow, and the navigation rail became dark navy. Those values live in
+`tokens.css` and every one of the twelve pages inherits them, which is why the
+redesign touched almost no page code — the class names are still the
+prototype's. Read the prototype for *what a panel is made of*; read the tokens
+for what it looks like.
+
+Prefer extending an existing component over inventing one: the four states every
+screen needs (loading, empty, error, populated) are already solved in the ones
+that exist, and `PanelHead`, `KpiCard` and `Pager` exist so a panel header, a
+figure and a pager are the same object everywhere.
 
 ## Getting started
 
@@ -106,6 +117,40 @@ To start over:
 
 The database file, its `-wal`/`-shm` sidecars and the whole `data/` directory are gitignored.
 
+### Files on disk
+
+Two directories hold state, both at the repo root and both gitignored. Paths are
+resolved against the repo root, never the working directory — which is what
+stops `alembic` run from one folder and the server started from another using
+two different database files.
+
+| Path | What | Setting |
+|---|---|---|
+| `data/` | The database and its WAL sidecars | `STOCKSYNC_DATABASE_URL` |
+| `storage/exports/` | Generated report files | `STOCKSYNC_EXPORT_DIR` |
+| `storage/backups/` | Database snapshots | `STOCKSYNC_BACKUP_DIR` |
+
+Only `data/` is irreplaceable. Exports are regenerable, and a report whose file
+has gone is reported as unavailable rather than as an error.
+
+### Backups
+
+`cp` is not a backup here. In WAL mode committed data lives partly in
+`stocksync.db-wal`, so copying the main file yields a database that opens
+cleanly and is missing recent writes. `app.cli backup` uses SQLite's online
+backup API instead — consistent by construction, and it does not block writers.
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m app.cli backup
+```
+
+It keeps the newest `STOCKSYNC_BACKUP_KEEP` snapshots (14) and deletes the rest,
+by count rather than by age — an age rule would delete a quiet workspace's only
+snapshots precisely when nothing is being written to replace them. In production
+a systemd timer runs it nightly; see [deploy/README.md](deploy/README.md) for
+that and for the restore procedure.
+
 ### Moving to PostgreSQL later
 
 Nothing in the application layer is SQLite-specific. To switch:
@@ -114,7 +159,9 @@ Nothing in the application layer is SQLite-specific. To switch:
 2. Set `STOCKSYNC_DATABASE_URL=postgresql+psycopg://user:password@host:5432/stocksync`.
 3. `./tasks.ps1 migrate`.
 
-`STOCKSYNC_DB_POOL_SIZE` and `STOCKSYNC_DB_MAX_OVERFLOW` already exist and start applying automatically; SQLite ignores them. Alembic drops out of batch mode on its own. What does *not* migrate automatically is the data — and see IMPLEMENTATION_PLAN.md §4.4 (where SQLite sits) and §4.5 (the two schema choices it forces) before the first migration lands.
+`STOCKSYNC_DB_POOL_SIZE` and `STOCKSYNC_DB_MAX_OVERFLOW` already exist and start applying automatically; SQLite ignores them. Alembic drops out of batch mode on its own.
+
+What does *not* move automatically is the data, and two schema choices exist only because SQLite has one writer: the background worker is a single thread, and the login and rate-limit counters are in process memory. Neither has to stay that way once a server dialect is behind the URL — see [core/throttle.py](backend/app/core/throttle.py) for the seam.
 
 ## Commands
 
@@ -134,6 +181,11 @@ by hand does exactly the same thing.
 | `./tasks.ps1 reset-db` | Delete the SQLite file, rebuild it from migrations, re-seed |
 | `python -m app.cli seed` | As above, or `--email`/`--name` for another account (run from `backend/`) |
 | `python -m app.cli set-password` | Change a password and sign that user out everywhere |
+| `python -m app.cli backup` | Write a consistent database snapshot and prune old ones |
+| `python -m app.cli check-inventory` | Report SKUs whose two quantity fields disagree (`--repair` to fix) |
+
+Run the `app.cli` commands **from `backend/`**. They read `../.env` relative to
+the working directory, so from anywhere else they pick up different settings.
 
 ## Layout
 
@@ -145,41 +197,67 @@ backend/app/
   core/logging.py  logging with credential redaction on every record
   core/security.py argon2id hashing, JWT signing, refresh tokens
   core/crypto.py   Fernet encryption for third-party credentials at rest
+  core/throttle.py failed-login counter and per-user limits on slow work
   db/              engine, session, SQLite pragmas, health probe, base
   api/routes/      endpoints
   models/          workspace, user, preferences, auth sessions, import
-                   batches, inventory items, shopify connection, sync runs,
-                   orders, order line items, sku daily metrics, reports
+                   batches, inventory items, linked sheets, shopify
+                   connection, sync runs, orders, order line items, sku daily
+                   metrics, activity events, reports
   repositories/    every query lives here; services stay readable as rules
   workers/runner.py    one background thread; SQLite has one writer
   services/auth.py     authenticate, issue/rotate/revoke sessions
   services/import_files.py  parse CSV/XLSX — encoding, delimiter, headers
+  services/import_url.py    fetch a URL safely: address guard, size cap
+  services/google_sheets.py  a sheet link → its CSV export URL, and back
+  services/sheets.py        remembering a sheet's address so it runs again
   services/imports.py       run an import and reconcile it into stock
   services/shopify.py       validate, store and revoke a store credential
   services/shopify_client.py  the Admin API: pagination, rate limits, errors
-  services/sync.py          pull products and orders, staged and resumable
+  services/sync.py          pull orders, committed per page and resumable
+  services/activity.py      the account of how a run reached its result
   services/metrics.py       builds the daily rollup — the only writer of it
   services/analytics.py     reads it: the six cards, the trend, the SKU table
+  services/insights.py      pure derivations over the facts — no query, no clock
   services/report_data.py   what goes in each report — one builder per type
   services/report_files.py  renders a report as CSV, XLSX or PDF
   services/reports.py       queue, generate on the worker, download, delete
-  cli.py           issue accounts and reset passwords
+  services/report_store.py  where an export lives on disk, and its cleanup
+  services/backup.py        consistent SQLite snapshots, with retention
+  cli.py           issue accounts, reset passwords, take a backup
 
 frontend/src/
-  styles/tokens.css      design tokens, §1.3, verbatim from the prototype
+  styles/tokens.css      the palette, radii and shadows — the one place
   styles/base.css        reset, tabular numerals, reduced-motion
-  styles/components.css  .btn .panel .badge … ported from the prototype
+  styles/components.css  .btn .panel .badge … every page renders through these
   styles/fonts.css       self-hosted Figtree + JetBrains Mono @font-face
   lib/format.ts          n() inr() pct() freshness() — lakh/crore grouping
-  lib/api.ts             fetch wrapper; auth cookie, error envelope, upload
-  contexts/              auth, theme, toasts
-  components/shell/      header, sidebar, page template
-  hooks/useSync.ts       polls sync progress only while one is running
+  lib/api.ts             fetch wrapper; auth cookie, error envelope, timeouts
+  contexts/              auth, theme, toasts, shared Shopify status, range
+  hooks/useSync.ts       polls sync state — fast during a run, slowly between
+  hooks/useSharedRange.ts  the window every page reads over, or a local one
   hooks/useChartTooltip.ts  the one tooltip every chart on a page shares
+  components/shell/      header, sidebar, page template, panel header
+  components/Logo.tsx    the product mark — rail, sign-in, boot, favicon
+  components/KpiCard.tsx a figure with a glyph, and a trend *or* a note
+  components/Pager.tsx   numbered paging for the list pages
+  components/ErrorBoundary.tsx   stops a render error becoming a blank page
+  components/SyncStateNotice.tsx "sync running" / "figures behind", one copy
   components/charts/     line, horizontal bar, donut and stacked bar, drawn
-                         as plain SVG from the prototype's own geometry
+                         as plain SVG. Each has a wide drawing and a compact
+                         one: the SVG scales to its container and the type is
+                         in viewBox units, so one geometry cannot serve both a
+                         full-width panel and a third of a row
+  components/charts/geometry.ts  those drawings, and the axis-gutter sizing
   pages/                 login, settings, import, import history, Shopify,
                          sync history, dashboard, reports
+  pages/dashboard/       the panels, their reads, and their caveats
+  pages/analytics/       overview, sales, inventory, performance, complaints
+
+deploy/
+  README.md              first deploy, updating, backups, restore, diagnosis
+  nginx/stocksync.conf   serves the SPA, proxies /api to uvicorn
+  systemd/               the API unit, and the nightly backup timer
 ```
 
 ## Inventory import
@@ -274,8 +352,8 @@ Three things the parser handles because real exports do them:
 Rows with no SKU are rejected individually and reported by row number — the rest
 of the file still imports, and the batch is marked `partial`.
 
-An import **replaces the whole dataset**. Q6 is closed: a SKU missing from the
-latest sheet is gone, not kept. The workspace holds what the newest successful
+An import **replaces the whole dataset**: a SKU missing from the latest sheet
+is gone, not kept. The workspace holds what the newest successful
 import says and nothing else, so a 309-row export leaves 309 SKUs however many
 were there before, and re-importing the same file twice does not double
 anything.
@@ -310,6 +388,41 @@ Measured on a 4,000-row complaint export with 300 SKUs: grouped into 300 rows,
 back by name. The same data as Excel under entirely different column headings
 produced identical totals.
 
+### Importing from a Google Sheet
+
+A sheet can be imported by link instead of by file, and the link can be kept so
+it can be run again. **A Google Sheet import *is* a CSV import that arrived by a
+different door** — same fetch, same parser, same reconciliation. The only thing
+Import History records differently is the method (`google_sheet` rather than
+`csv_upload` or `excel_upload`).
+
+The link is the one the browser bar shows. Three shapes are understood: a normal
+sharing or editing link (`/d/<id>/edit#gid=123`), a published-to-web link
+(`/d/e/<key>/pubhtml`, a different namespace exporting from `/pub` rather than
+`/export`), and an export URL the user already built, which passes through
+untouched.
+
+| | |
+|---|---|
+| Which tab | `gid`, read from the fragment as well as the query — a browser puts it in `#gid=123`, and a fragment is never sent to a server, so it has to be moved into the query to survive. **An absent gid is left out entirely rather than defaulted to 0**: deleting a workbook's first tab leaves the next one with whatever id it was created with, and Google serves the first visible sheet when asked for none — which is the one the user is looking at |
+| Access | The sheet is public or the import fails. Nothing here holds a credential, and StockSync has no OAuth token — which is also why a linked sheet is named by the user rather than by its real title, since that needs the Sheets API |
+| A sign-in wall | Reported as *not publicly accessible*, with the Share → Anyone with the link → Viewer path to fix it, rather than as "that link returned a web page" |
+
+**Linking one records the address, nothing else.** Re-syncing runs the same
+fetch and the same importer against the same URL, so a link grants no access it
+did not already have. One row per *tab*, not per document — two tabs of one
+workbook are two sheets to import, and folding them together would make linking
+the second silently rewrite the first. Settings shows the link as pasted, plus
+when it was last run and how it went.
+
+Fetching a user-supplied URL server-side is the part that needs care: the server
+can reach the loopback interface, the private network it sits on, and a cloud
+metadata endpoint the browser cannot. Every address is therefore checked before
+a connection is opened — **on the original URL and on each redirect hop**, since
+a public host can redirect to `127.0.0.1` — with at most three hops, the upload
+size cap applied to the declared length *and* to the bytes as they stream, and
+an HTML body rejected rather than parsed as a one-column sheet.
+
 ## Shopify connection
 
 Store URL and Admin API access token, validated against Shopify **before**
@@ -318,6 +431,33 @@ database. The token needs **`read_orders`** — and only that — and is held as
 Fernet ciphertext under `STOCKSYNC_ENCRYPTION_KEY`; it is never returned by the
 API, in any form. Disconnecting overwrites the stored ciphertext and keeps the
 record of what was connected.
+
+### Connecting a development store from `.env`
+
+Setting both of these connects a store without using the form, so a development
+store survives `reset-db`:
+
+```ini
+SHOPIFY_STORE_URL=mystore.myshopify.com
+SHOPIFY_ADMIN_API_TOKEN=<the Admin API access token from your custom app>
+```
+
+The store URL also accepts the full `https://admin.shopify.com/store/mystore`
+address you get from the browser bar, or the bare store name.
+
+These four are the only settings without the `STOCKSYNC_` prefix — they use
+Shopify's own variable names, so a value can be pasted straight from where it
+was generated. There is exactly one spelling for each; `STOCKSYNC_SHOPIFY_*` is
+not read.
+
+**A store connected through the app always wins over these**, and they are
+**ignored entirely when `STOCKSYNC_ENV=production`** — a token in a file is
+plaintext on disk, which is worse than the encrypted storage the Connect form
+uses. The page shows a `From .env` badge and explains that Disconnect can't act
+on it, since there's no row to remove. The token is never displayed and never
+returned by the API.
+
+Full reference: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Shopify sync
 
@@ -356,13 +496,55 @@ visible record rather than a job that quietly never existed.
 | Rate limits | A 429 is retried with `Retry-After` rather than failing the sync |
 | Writes | Committed **per page**, so SQLite's write lock is held for milliseconds and an interrupted sync keeps what already landed |
 | Concurrency | One sync at a time, on one worker thread — SQLite serialises writes, so a second would not go faster |
+| Time budget | A run stops after `STOCKSYNC_SYNC_MAX_SECONDS` and queues a continuation from its cursor, so a long first sync arrives in chunks that each finish — see [below](#a-long-sync-finishes-in-chunks) |
 | Partial | If the stage stops part-way the pages that landed are kept, the run is `partial`, and the cursor is stored so the next run **resumes** instead of restarting |
+| Stale cursors | A resume cursor **older than the lookback window is discarded**. `page_info` encodes the `created_at_min` that produced it, so following an old one walks the result set as it was when the cursor was issued — orders created since were never in that sequence. On the production store that showed as syncs completing successfully while the newest 30 hours stayed unfetched, indefinitely |
 | Interrupted | A run that has gone **quiet for five minutes** is closed out, keeping its cursor. The window matters: reclaim used to close *every* running row on the assumption that this process is the only one, which is never true under `uvicorn --reload`, so a live sync in another process was stamped `sync_interrupted` while it carried on working |
+| Recovery | Reclaim runs at start-up, when a sync is started, **and on every poll of `GET /shopify/sync`**. Start-up alone was not enough: a run killed less than five minutes before the process returned was too fresh to reclaim then, and nothing looked again — so it stayed `running`, blocked every future sync, and only a second restart cleared it |
 | Duplicates | Orders and line items are deduplicated **within a page**, not only against the database. Cursor pagination is not a snapshot — an order updated mid-walk shifts position and can be returned twice — and inserting the second sighting killed the page flush on the unique constraint |
+| Termination | The walk stops if a cursor **repeats**. A `rel="next"` pointing somewhere already visited looped forever, re-fetching and re-committing pages while the run's counters climbed — indistinguishable from progress, with `finished_at` never set |
 
 Money arrives from Shopify as a decimal string and is stored as integer paise.
 `sku_at_sale` records the SKU as it was when the sale happened, so a sale still
 reconciles after the variant is renamed or deleted.
+
+### A long sync finishes in chunks
+
+A first sync covers `order_lookback_days` — 90 by default — at 250 orders a page
+against Shopify's roughly two requests a second. That is minutes to tens of
+minutes on a real store, with no natural stopping point. Unbounded, any
+interruption inside that window lost the run's *status* (never its data, which
+commits per page) and the next attempt started the same long walk. In
+development that meant every file save, because the worker is a thread inside a
+server started with `--reload` — so the run never converged.
+
+A run therefore has a budget: `STOCKSYNC_SYNC_MAX_SECONDS`, 120 by default. The
+check happens **after a page commits**, so a run only ever stops on a boundary
+it has already made durable, and it measures monotonic time, because a clock
+adjustment mid-sync must not stretch or truncate the budget.
+
+Running out of time is not a failure — nothing went wrong and there is nothing
+for the user to fix. The run is recorded as `partial` with code `sync_paused`,
+which is what the amber badge and the resume cursor already mean, and it queues
+its own successor with the trigger `continuation`. Sync History labels that
+**Continued**, so a chain reads as one long sync in pieces rather than as the
+application syncing over and over for no reason.
+
+Four independent reasons the chain terminates, because an automatic chain that
+does not stop is worse than a slow one:
+
+| | |
+|---|---|
+| The window is finite | `order_lookback_days` of orders, and no more |
+| Progress is required | A chunk continues only if the cursor **moved**. A chain that stops making progress stops entirely |
+| The ordinary exit | When Shopify offers no next page the stage is not paused at all — the run succeeds and the chain ends |
+| A cycle on Shopify's side | The walk refuses a cursor it has already followed |
+
+**Failures never chain.** A revoked scope or an expired token would otherwise
+retry itself in a loop against a credential nobody has fixed yet. Nor does a
+continuation displace a person: if someone starts their own sync in the
+meantime, or the store is disconnected, the continuation simply does not start —
+the cursor is committed, so the next sync resumes from it either way.
 
 ### How current the orders are
 
@@ -384,78 +566,6 @@ orders behind.
 | Stored | `store_latest_order_at` and `freshness_checked_at` on the connection, so other screens can report the gap without paying for the call again |
 
 A failed check leaves the last good value alone rather than erasing it.
-
-### Inventory vs Shopify
-
-A quick four-bucket summary on the Shopify page — matched, not in Shopify, not
-imported, and duplicate. It compares on the **exact and normalised** SKU only.
-For fuzzy matching, ranked candidates and resolution, use **SKU matching**.
-
-## SKU matching
-
-Four tiers, in order. **The first that yields exactly one candidate wins.**
-
-| Tier | Rule | Confidence | Queue |
-|---|---|---|---|
-| 0 | An existing link | 100 | Matched |
-| 1 | Byte-identical SKU | 100 | Matched, auto-linked |
-| 2 | Equal normalised SKU | 98 | Matched, auto-linked |
-| 3 | Fuzzy, ≥ 70 | 70–95 | **To review** |
-| — | Nothing ≥ 70 | — | Missing in Shopify |
-| — | More than one candidate | — | Duplicates |
-
-Tiers 1 and 2 auto-link. **Tier 3 never does** — a fuzzy match is confirmed by
-a person. When two candidates score within two points of each other the SKU
-goes to Duplicates rather than the tool picking one; refusing to guess when
-both sides claim a SKU is what that queue is for.
-
-Scoring is `0.75 × jaro_winkler(sku) + 0.25 × token_set_ratio(name)`.
-Jaro-Winkler weights the prefix, so `DD-1002` vs `DD-1002-A` scores high while
-`AD-1002` does not. A pair whose SKUs are less than 55% similar is discarded
-however well the names agree, so a shared product name can never carry an
-unrelated SKU over the line. **These weights are reasoned, not measured** —
-open question Q7 asks for real SKU pairs to calibrate against.
-
-At scale, every inventory SKU is scored only against variants sharing its first
-three characters or its length ±1. That turns 5,000 × 1,200 from six million
-comparisons into roughly 250,000.
-
-### Links are permanent
-
-A link is keyed on the **normalised SKU string** and holds **Shopify's own
-variant id**. Neither side references a row that gets replaced, so a link
-survives a re-import, a re-sync and a rename — the promise design doc §10.2
-makes. Re-running matching never deletes one; only unlinking does.
-
-"Mark as missing" is recorded as a decision too, so a dismissed SKU stays
-dismissed instead of returning to the review queue after every sync.
-
-### Connecting a development store from `.env`
-
-Setting both of these connects a store without using the form, so a development
-store survives `reset-db`:
-
-```ini
-SHOPIFY_STORE_URL=mystore.myshopify.com
-SHOPIFY_ADMIN_API_TOKEN=<the Admin API access token from your custom app>
-```
-
-The store URL also accepts the full `https://admin.shopify.com/store/mystore`
-address you get from the browser bar, or the bare store name.
-
-These four are the only settings without the `STOCKSYNC_` prefix — they use
-Shopify's own variable names, so a value can be pasted straight from where it
-was generated. There is exactly one spelling for each; `STOCKSYNC_SHOPIFY_*` is
-not read.
-
-**A store connected through the app always wins over these**, and they are
-**ignored entirely when `STOCKSYNC_ENV=production`** — a token in a file is
-plaintext on disk, which is worse than the encrypted storage the Connect form
-uses. The page shows a `From .env` badge and explains that Disconnect can't act
-on it, since there's no row to remove. The token is never displayed and never
-returned by the API.
-
-Full reference: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## What Shopify is for
 
@@ -507,18 +617,74 @@ Headers match after case, spaces, dots, hyphens and underscores are stripped, so
 unreadable count cell is zero, not a rejected row: a missing complaint means no
 complaints, and discarding the SKU's stock over it would be worse.
 
+## The shell
+
+A dark navy rail on the left, a white bar across the top, and one scrolling
+region between them. The rail collapses to 72px from its own footer and becomes
+an overlay drawer below 1024px.
+
+**The rail lists all twelve destinations outright.** Five operational ones
+first, unlabelled — they are the daily path through the product and need no
+heading to explain them — then `Analytics`, `Reports` and `Settings`, each
+heading introducing a set rather than a pair. The Analytics pages used to be
+children that appeared only while the section was open, which hid four of the
+twelve behind a click and made the rail a poor answer to "what is in this
+product". The active row is a filled blue pill: on a rail this dark a 12%-alpha
+tint is barely a shade, and *which page am I on* is the one question the rail
+must answer from across a room.
+
+**The header carries three things: the brand, the sync pill, and the user
+menu.** What it does *not* carry is worth writing down, because each was added
+in good faith and each turned out to belong somewhere else:
+
+| Tried | Why it went |
+|---|---|
+| A global search box | It searched SKUs alone, which is what SKU Performance's own filter already does — beside the status, complaint and quantity filters that make a SKU search useful. Before that it was a placeholder wired to nothing |
+| A date-range control | The range belongs on the pages that draw the figures, where the control sits beside the chart it changes rather than a screen away from it |
+| A notifications bell | It listed what the pages already say out loud: the sync pill turns amber for "not connected" and red for a failure, the Shopify cards say so directly, and `SyncStateNotice` banners stale figures. A second, quieter copy was a place for those to be missed |
+
+`Header.test.tsx` asserts all three absences, and says why each one went. Every
+one of them looked reasonable on the day it was added, which is exactly how a
+header quietly accumulates controls.
+
+**The range is still shared**, through `RangeContext` — the Dashboard and the
+four Analytics pages read one value, so moving between them keeps the window you
+chose. The provider is optional and `useSharedRange` falls back to local state,
+so a page rendered on its own still has a working control rather than a dead
+one.
+
 ## The dashboard
 
-Six cards. Four from the sheet, two from Shopify:
+Six cards. Five from the sheet, one from Shopify:
 
 | Card | Meaning |
 |---|---|
 | Total SKUs | rows in the sheet |
-| Total quantity | `SUM(Quantity)` |
-| Shopify sales | units sold, of SKUs that are in the sheet |
-| Shopify sales % | that as a share of **every** unit the store sold (the card only — see below) |
-| Total orders | `SUM(Total Orders)` — from the sheet, not from Shopify |
-| Total complaints | all ten categories summed |
+| Total Quantity | `SUM(Quantity)` |
+| Shopify Sales | units sold, of SKUs that are in the sheet — with its share of **every** unit the store sold on the line beneath it |
+| Total Orders | `SUM(Total Orders)` — from the sheet, not from Shopify |
+| Total Complaints | all ten categories summed |
+| Complaint Rate | complaints ÷ orders, both the sheet's own figures. No orders is no rate — shown as `—`, which is not a rate of zero |
+
+**Only Shopify Sales carries a trend arrow.** `trend.previous` is the one prior
+period the API reports, computed server-side as the same window shifted back.
+The other five are sheet totals from the newest import, and an import replaces
+the whole dataset — there is no previous value to compare them against, so those
+cards carry a note saying what they count instead. `KpiCard` takes a `trend` or
+a `note` and will not dress one as the other.
+
+Then, in order down the page: the **Shopify Connection** and **Sync Status**
+cards; a row of three charts — the sales trend, an inventory-health donut and a
+complaint breakdown; and two tables — **Products Requiring Attention** (the
+SKUs the server marked Critical or Needs attention, worst first) and **Product
+Performance** (the shared `SkuTable`, with the same filters and the same export
+SKU Performance offers).
+
+The inventory donut's four buckets are a partition, not four interesting facts:
+no stock, low stock, stocked but never sold, and stocked and selling. They are
+counted over disjoint ranges of the same column so the shares sum to 100%, and a
+count that could not be read is left out rather than folded into its neighbour —
+which would report unknown SKUs as healthy ones.
 
 **Shopify Sales % is a share, not a ratio over stock** — but the card and the
 column are shares of *different wholes*, deliberately, because they answer
@@ -547,23 +713,63 @@ One rounding note: the column sums to exactly 100% before display and reads
 99.55% once every row is rounded to two decimals, because 1,641 roundings of up
 to ±0.005% each accumulate. That is display precision, not a different formula.
 
-Below the cards: the sales trend, then the SKU table — SKU, Quantity, Shopify
-Sales, Shopify Sales %, Total Orders, Total Qty, all ten complaint columns and a
-stock badge. The complaint headers arrive from the server with each page, so the
-table's headers and its cells cannot disagree about the set.
+The SKU table carries SKU, Complaints, Shopify Sales, Shopify Sales %, Total
+Quantity, Total Orders and all ten complaint columns. The complaint headers
+arrive from the server with each page, so the table's headers and its cells
+cannot disagree about the set.
+
+## Loading, and what happens when a read fails
+
+A dashboard load makes nine requests. They are independent on purpose: each
+panel holds its own data, its own error and its own skeleton, so one slow or
+failed endpoint costs its own panel and nothing else.
+
+Three things were making that untrue, and all three are fixed:
+
+| | |
+|---|---|
+| **No request ever timed out** | `fetch` has none of its own: a request that never answers never rejects, so whatever was waiting on it waited for ever. That is exactly how a dashboard ends up stuck on skeletons with no error to show. Reads now abort at 20 seconds and uploads at 120, and a timeout says *took too long* rather than *could not reach* — two different problems with two different things to do about them |
+| **Refreshing cleared the screen first** | Every finished sync and every range change nulled the panels' state, so figures that were already correct vanished back to skeletons for the length of the request. Panels now hold the previous answer until a new one arrives; the first load still shows skeletons, because the state starts null |
+| **A panel could spin for ever on a failed read** | Inventory Health takes its totals from the KPI payload and rendered a skeleton when that read failed — so a failed request looked identical to a slow one. It reports the failure and offers Retry |
+
+### The two indexes
+
+`/analytics/overview` took **964 ms** on the production store and
+`/analytics/insights` **966 ms** — and roughly 700 ms of each went on staleness
+metadata rather than on any figure a user reads. Both routes take two `max()`
+values over large tables, and neither column was indexed:
+
+* `max(sku_daily_metrics.computed_at)` — 721,906 rows, 214 ms, run **twice** per
+  request: once for `last_computed_at` on the payload and again inside the
+  staleness check.
+* `max(orders.synced_at)` — 624,636 rows, 265 ms.
+
+SQLite answers `max()` on an indexed column by seeking the last key, so
+`(workspace_id, computed_at)` and `(workspace_id, synced_at)` take both to 0 ms.
+Overview fell to 305 ms, insights to 250 ms, and a full dashboard load from
+**1,859 ms to 1,009 ms**. The migration is
+[20260918_0940_staleness_lookup_indexes](backend/alembic/versions/20260918_0940_staleness_lookup_indexes.py);
+it adds no column and changes no value, so nothing that reads or writes those
+tables behaves differently.
+
+`/shopify/sales/summary` is now the slowest single read at ~460 ms, and is
+deliberately left alone: it is three counts over 3.5m line items, and an index
+on `(workspace_id, sku_normalized)` measured *worse* — SQLite chose a poorer
+plan — while taking 10.6 s to build. A count over that many rows costs what it
+costs, and it only feeds the two Shopify cards.
 
 ## Analytics
 
-Under **Insights → Analytics**, which is a section rather than a page. The
-dashboard is the quick look; these five answer the questions it raises.
+The rail's **Analytics** group. The dashboard is the quick look; these five
+answer the questions it raises.
 
 | Page | Purpose |
 |---|---|
-| `/analytics` | executive summary — six KPIs, four findings, two small charts, **no tables** |
-| `/analytics/sales` | everything Shopify contributes: trend, distribution, top and bottom sellers, ranking |
-| `/analytics/complaints` | the ten sheet categories: distribution, category bars, top SKUs, ranking by count |
-| `/analytics/inventory` | stock against demand, with a recommendation badge per finding |
-| `/analytics/performance` | every SKU — six filters, nine sortable columns, CSV and Excel export |
+| `/analytics` — *Overview* | executive summary — six KPIs, four findings, two small charts, **no tables** |
+| `/analytics/sales` — *Sales Analytics* | everything Shopify contributes: trend, distribution, top and bottom sellers, ranking |
+| `/analytics/complaints` — *Complaint Analytics* | the ten sheet categories: distribution, category bars, top SKUs, ranking by count |
+| `/analytics/inventory` — *Inventory Analytics* | stock against demand, with a recommendation badge per finding |
+| `/analytics/performance` — *Product Performance* | every SKU — six filters, nine sortable columns, CSV and Excel export |
 
 The split is the point. One page carrying eight KPIs, five charts and seven
 tables cannot be scanned; each of these five has one job, and the overview links
@@ -571,10 +777,11 @@ onward rather than showing the detail itself. The six cards it repeats from the
 dashboard are context — they are what every other page is read against — while
 the two derived averages live only on the pages that use them.
 
-The sidebar reveals the four sub-pages while you are anywhere inside
-`/analytics`, so the page you are on is visible in its section without nine links
-being permanently on screen. Below 1024px the collapsed rail hides them; the
-overview reaches all four.
+All five are listed in the rail at all times. They used to appear only while you
+were inside `/analytics`, which meant four of the product's twelve pages were
+invisible from anywhere else. `Overview` and its four siblings are peers in one
+list now, so opening Sales Analytics does not also light up Overview — `end` on
+the link is what stops `/analytics` matching `/analytics/sales`.
 
 ### Complaint dates: both upload formats are supported
 
@@ -709,6 +916,36 @@ out revokes access immediately instead of leaving a valid credential live until
 it expires. Login answers identically — and takes the same time — for an unknown
 email and a wrong password, so it cannot be used to discover who has an account.
 
+### Two throttles, counting different things
+
+argon2id costs ~95 ms per verification, which is often mistaken for a
+brute-force control. It is not — it is a price per attempt on one connection,
+and an attacker opening fifty connections pays it fifty times in parallel.
+Measured here before the counter existed: twelve wrong passwords in 1.14
+seconds, nothing refused.
+
+| | Counts | Keyed on | Cleared by |
+|---|---|---|---|
+| **Login throttle** | *Failed* sign-ins | Account **and** client address | A correct password |
+| **Rate limiter** | *Every* import, sync, recompute and report | User, workspace and operation | The window draining |
+
+The second exists because sign-in is not the only expensive request. An import
+parses a spreadsheet, a sync walks Shopify for minutes, a recompute takes
+SQLite's write lock, a report renders up to 50,000 rows — and all four queue on
+the one worker thread SQLite's single-writer limit already forces. None of it
+looks like an attack, so the failure counter never saw it; one user, or one
+browser tab retrying in a loop, could make the application unresponsive.
+
+Refusals carry `Retry-After`, so a client is never left guessing and looping.
+
+**Both counters live in this process's memory.** The alternative is a table, and
+a write per refused attempt is a write an unauthenticated caller can force. The
+cost is a real deployment constraint: counters reset on restart, and they are
+per process — run uvicorn with `--workers 2` and every limit silently doubles.
+The job runner and SQLite's single writer assume one process too. The store
+behind both counters is a four-method protocol so a shared implementation can
+replace it without touching either counter.
+
 ### Keeping a session alive
 
 There is no Authorization header and no token in `localStorage`, so there is
@@ -755,12 +992,55 @@ to a protected URL rather than fetching it, because the browser should handle th
 string. They are same-origin, so the cookie rides along, and both call
 `ensureSession()` first because a navigation that 401s gets no second chance.
 
+## Reports
+
+An export is queued, built on the worker thread, and downloaded from the Export
+Centre. The row exists the moment it is asked for, so *Preparing → Ready* is a
+real status rather than one the UI invented. A report is a **snapshot**: once
+ready its bytes never change, which is what makes "the export I sent you last
+Tuesday" a meaningful sentence. Re-running one makes a second row.
+
+**The file is on disk; the row holds the metadata.** It used to be a `BLOB` on
+the row, which removed a class of bugs — no orphans, no directory to keep
+writable, deleting was a `DELETE` — and was right while exports were small. At
+the 50,000-row cap with 50 retained per workspace it stopped being right: those
+bytes sat in the same SQLite file that answers every analytics query, and
+downloading one read it whole into the worker's memory before a byte reached the
+socket. Downloads now stream with `FileResponse`.
+
+What moving to disk costs, and how each cost is paid:
+
+| Risk | Answer |
+|---|---|
+| Orphaned files | Deleting a row deletes its file **first**; a file already gone is not an error. A start-up sweep clears the residue |
+| A half-written export | Written to `.part` and renamed — the rename is atomic, so a reader never sees a truncated file |
+| A `ready` row whose file has gone | Reported as *not ready*, not as a 500. From the user's side that is exactly what happened |
+| Path traversal | Structurally impossible: the stored key is `{workspace_id}/{report_id}.{fmt}` — two integers and a value from a fixed enum. The generated filename is used only in `Content-Disposition` |
+
+## Deployment
+
+One Ubuntu host: uvicorn on `127.0.0.1:8000`, nginx serving the built SPA and
+proxying `/api` to it. The frontend always calls same-origin `/api`, so there is
+no API URL to configure at build time — but **nginx must proxy `/api`, or
+nothing works at all**.
+
+Everything is in [deploy/](deploy/) — the nginx site, the systemd units, and
+[deploy/README.md](deploy/README.md) for first deploy, updating, backups,
+restore, and diagnosing a deployment that will not serve.
+
+Three things a production server refuses to start without, all checked at
+import so a missing one is a hard exit rather than a degraded server:
+`STOCKSYNC_JWT_SECRET`, `STOCKSYNC_ENCRYPTION_KEY`, and `STOCKSYNC_COOKIE_SECURE`
+(which needs HTTPS). The third is the one a deployment gets wrong by omission.
+
 ## Conventions
 
 - **Numbers.** Every figure renders in the tabular mono face and is right-aligned in tables. Use `.num` (or `td.n`). This is a reconciliation tool — digits must line up in columns.
-- **Colour.** Never hard-code a hex value. Use the tokens in `styles/tokens.css`. Slate is the primary action, Clay is the single committing CTA on a flow's terminal step, and status is always Moss / Amber / Rust.
-- **Cards have no shadow.** Separation comes from the strata divider (1px rule + tinted fill under section headers), not elevation.
-- **Copy is never invented.** Labels, empty states, errors and button verbs come from the design doc or the prototype. If a string is missing, ask.
+- **A figure with no prior period does not get a trend arrow.** `KpiCard` takes a `trend` or a `note`, never a fabricated delta. The sheet is a snapshot; most of its totals have nothing to be compared against.
+- **Colour.** Never hard-code a hex value. Use the tokens in `styles/tokens.css`. The token *names* are the prototype's and have not changed — `--slate` is still the primary action, `--clay` still the single committing CTA, status still Moss / Amber / Rust — but the values are a blue-primary SaaS palette. That is what let the redesign reach all twelve pages without touching page code, and it is why renaming a token is a much larger change than revaluing one.
+- **Cards carry a hairline shadow**, not elevation. `--shadow-card` is one pixel; `--shadow` is heavier and for overlays only.
+- **Charts pick a drawing, they do not measure.** Each chart takes a `compact` flag rather than reading its container: the SVG scales to its container and its font sizes are in viewBox units, so the geometry decides legibility, and there are only two useful answers. Sizing the axis gutter from the labels themselves is not optional — a store selling tens of thousands a day gets six-character labels, and a fixed gutter paints the first one off the edge.
+- **Copy is never invented.** Labels, empty states, errors and button verbs come from an existing screen. If a string is missing, ask.
 - **Errors say what happened and what to do next.** Both travel from the server in the error envelope so screens never invent a recovery instruction.
 - **Secrets.** Never commit them, never log tokens. `.env.example` only. Logging redacts credential-shaped strings at the handler, so a careless log line can't leak a token.
 - **Database portability.** Keep dialect-specific code inside `db/session.py` and `alembic/env.py`. No raw SQL that only SQLite understands, and no PostgreSQL-only types in models.

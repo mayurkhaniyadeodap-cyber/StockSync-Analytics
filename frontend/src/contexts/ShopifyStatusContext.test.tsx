@@ -149,7 +149,7 @@ describe('connecting a store', () => {
     const { fetcher } = backend();
     renderApp(fetcher);
 
-    // Before: the header says so, on both the pill and the bell.
+    // Before: the header's sync pill says so.
     await waitFor(() => expect(screen.getByText('Not connected')).toBeDefined());
 
     await connectAStore();
@@ -157,11 +157,6 @@ describe('connecting a store', () => {
     // After: the header re-read the connection itself. Nothing remounted, and
     // the user never navigated.
     await waitFor(() => expect(screen.queryByText('Not connected')).toBeNull());
-
-    const user = userEvent.setup();
-    await user.click(screen.getByRole('button', { name: 'Notifications' }));
-    const bell = within(document.querySelector('.pop.notif') as HTMLElement);
-    await waitFor(() => expect(bell.queryByText('Shopify not connected')).toBeNull());
   });
 
   it('names the live store in the header once it is connected', async () => {

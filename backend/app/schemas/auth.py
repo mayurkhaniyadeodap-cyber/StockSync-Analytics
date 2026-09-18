@@ -20,6 +20,56 @@ class LoginRequest(BaseModel):
     remember_me: bool = False
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Just the address. Nothing about the account is echoed back."""
+
+    # The same pattern the login body uses — see EMAIL_PATTERN above for why
+    # this is not pydantic's EmailStr.
+    email: str = Field(max_length=320, pattern=EMAIL_PATTERN)
+
+
+class ResetPasswordRequest(BaseModel):
+    """The token from the link, and the password to set.
+
+    The token is not length-bounded here: it is a signed JWT whose size depends
+    on the secret and the claims, and a bound that fits today would reject a
+    perfectly good token after a claim is added. `verify` rejects anything that
+    does not decode, which is the real check.
+    """
+
+    token: str = Field(min_length=1)
+    password: str = Field(min_length=1, max_length=1024)
+
+
+class EmailChangeRequest(BaseModel):
+    """Move the login identity. The current password re-proves the session."""
+
+    new_email: str = Field(max_length=320, pattern=EMAIL_PATTERN)
+    current_password: str = Field(min_length=1, max_length=1024)
+
+
+class ConfirmEmailChangeRequest(BaseModel):
+    """The token from the verification link, and nothing else.
+
+    No password here: the link is opened in whichever browser reads the new
+    mailbox, which is usually not one that is signed in.
+    """
+
+    token: str = Field(min_length=1)
+
+
+class ChangePasswordRequest(BaseModel):
+    """Current and new. The confirmation field is checked in the browser.
+
+    A mismatch between two identical inputs is a typing mistake, not a security
+    decision, and sending both would give two places an opinion about what
+    "they match" means.
+    """
+
+    current_password: str = Field(min_length=1, max_length=1024)
+    new_password: str = Field(min_length=1, max_length=1024)
+
+
 class WorkspaceSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

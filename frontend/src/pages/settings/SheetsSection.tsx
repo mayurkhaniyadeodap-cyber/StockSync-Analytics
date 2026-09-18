@@ -108,6 +108,9 @@ export function SheetsSection() {
     <>
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip moss" aria-hidden="true">
+            <Icon name="sheet" size="s" />
+          </span>
           <h3>Linked Google Sheets</h3>
           {sheets !== null && sheets.length > 0 && (
             <div className="r">
@@ -206,6 +209,9 @@ export function SheetsSection() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="link" size="s" />
+          </span>
           <h3>Link a new sheet</h3>
         </div>
         <div className="p-bd">

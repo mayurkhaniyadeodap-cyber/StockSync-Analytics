@@ -54,7 +54,7 @@ SYNC_RESULTS = ("success", "partial", "failed")
 #: the sales beside the SKUs it just established are current without anyone
 #: pressing anything. "manual" is the Shopify page's button, kept as the way
 #: back after a failure and for a refresh between imports.
-SYNC_TRIGGERS = ("manual", "scheduled", "import", "retry")
+SYNC_TRIGGERS = ("manual", "scheduled", "import", "retry", "continuation")
 
 
 class ShopifyConnection(IdMixin, TimestampMixin, Base):
@@ -213,6 +213,12 @@ class Order(IdMixin, TimestampMixin, Base):
     __table_args__ = (
         UniqueConstraint("workspace_id", "shopify_order_id", name="workspace_order"),
         Index("ix_orders_workspace_processed", "workspace_id", "processed_at"),
+        # `max(synced_at)` is the staleness check, and every dashboard read runs
+        # it. Unindexed it scanned the whole table — 265 ms over 624,636 orders,
+        # paid twice per page load. As a covering index it is a seek to the last
+        # key: 0 ms. Ordered `(workspace_id, synced_at)` because the max is
+        # always taken within one workspace.
+        Index("ix_orders_workspace_synced", "workspace_id", "synced_at"),
     )
 
     workspace_id: Mapped[int] = mapped_column(

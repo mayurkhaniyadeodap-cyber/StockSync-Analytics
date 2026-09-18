@@ -95,6 +95,9 @@ export function SalesPage() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="chart" size="s" />
+          </span>
           <h3>Sales trend</h3>
           <span className="hint">Units per day, against the preceding {range} days</span>
         </div>
@@ -144,6 +147,9 @@ export function SalesPage() {
       <div className="grid2">
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip" aria-hidden="true">
+              <Icon name="chart" size="s" />
+            </span>
             <h3>Sales distribution</h3>
             <span className="hint">Share of matched units</span>
           </div>
@@ -183,6 +189,9 @@ export function SalesPage() {
 
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip moss" aria-hidden="true">
+              <Icon name="up" size="s" />
+            </span>
             <h3>Top selling SKUs</h3>
             <span className="hint">By units</span>
           </div>
@@ -211,6 +220,9 @@ export function SalesPage() {
       <div className="grid2">
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip amber" aria-hidden="true">
+              <Icon name="chart" size="s" />
+            </span>
             <h3>Lowest selling SKUs</h3>
             <span className="hint">Slowest movers first</span>
           </div>
@@ -237,6 +249,9 @@ export function SalesPage() {
 
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip" aria-hidden="true">
+              <Icon name="layers" size="s" />
+            </span>
             <h3>Every SKU</h3>
             <span className="hint">Sales, complaints and every category, in one table</span>
           </div>

@@ -337,37 +337,64 @@ describe('Complaint Analytics', () => {
     expect(await screen.findByText(/No complaints are recorded/)).toBeDefined();
   });
 
-  it('confirms the range applies when every complaint is dated', async () => {
+  it('asks the server for the whole complaint record, not a slice', async () => {
+    /**
+     * The figures *can* be windowed — a complaint export carries a date per
+     * row, and `?complaints=range` still sums over a period. This page asks for
+     * `total` because the date range exists for Shopify Sales, which it does
+     * not show.
+     */
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
+    renderPage(<ComplaintsPage />);
+
+    await screen.findByText('Complaint Analytics');
+    await waitFor(() => {
+      const asked = fetcher.mock.calls
+        .map(([input]) => String(input))
+        .filter((url) => url.includes('/analytics/insights'));
+      expect(asked.length).toBeGreaterThan(0);
+      for (const url of asked) expect(url).toContain('complaints=total');
+    });
+  });
+
+  it('offers no range control, because none of its figures move', async () => {
+    /** Three buttons that change nothing are worse than none: they imply the
+        categories below are a slice of something larger. */
     vi.stubGlobal('fetch', routes());
     renderPage(<ComplaintsPage />);
 
     await screen.findByText('Complaint Analytics');
-    expect(screen.getByText('Complaint totals follow the selected date range.')).toBeDefined();
+    for (const label of ['7D', '30D', '90D']) {
+      expect(screen.queryByRole('button', { name: label })).toBeNull();
+    }
   });
 
-  it('explains an aggregated import, whose totals ignore the range', async () => {
-    /**
-     * The page is entirely complaint figures, so this is where a reader is most
-     * likely to assume the range applies to them. It does not when the file had
-     * no Complaint Date column.
-     */
-    vi.stubGlobal(
-      'fetch',
-      routes({
-        'GET /analytics/insights': {
-          ok: true,
-          status: 200,
-          body: { ...INSIGHTS, complaint_scope: UNDATED_SCOPE },
-        },
-      }),
-    );
+  it('does not refetch when the shared range changes', async () => {
+    /** The page is pinned to the full window, so a range change elsewhere
+        cannot move anything here and must not cost a request. */
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
     renderPage(<ComplaintsPage />);
 
-    const note = await screen.findByText(/not filtered by date/);
-    expect(note.textContent).toContain('does not contain a Complaint Date column');
+    await screen.findByText('Complaint Analytics');
+    await waitFor(() =>
+      expect(
+        fetcher.mock.calls.filter(([input]) => String(input).includes('/analytics/insights'))
+          .length,
+      ).toBe(1),
+    );
+
+    const asked = fetcher.mock.calls
+      .map(([input]) => String(input))
+      .find((url) => url.includes('/analytics/insights'));
+    expect(asked).toContain('days=365');
   });
 
-  it('names the unfiltered remainder on a mixed workspace', async () => {
+  it('carries no date-range caveat, because there is nothing left to caveat', async () => {
+    /** `ComplaintScopeNote` exists to say "some of these follow the range and
+        some cannot". On an all-time page that sentence is not true of
+        anything. */
     vi.stubGlobal(
       'fetch',
       routes({
@@ -380,9 +407,18 @@ describe('Complaint Analytics', () => {
     );
     renderPage(<ComplaintsPage />);
 
-    const note = await screen.findByText(/Some imported complaint records/);
-    expect(note.textContent).toContain('883 SKUs');
-    expect(note.textContent).toContain('5,456 complaints');
+    await screen.findByText('Complaint Analytics');
+    expect(screen.queryByText(/follow the selected date range/)).toBeNull();
+    expect(screen.queryByText(/not filtered by date/)).toBeNull();
+    expect(screen.queryByText(/Some imported complaint records/)).toBeNull();
+  });
+
+  it('says in the subtitle that the figures are the complete record', async () => {
+    vi.stubGlobal('fetch', routes());
+    renderPage(<ComplaintsPage />);
+
+    await screen.findByText('Complaint Analytics');
+    expect(screen.getByText(/From the imported sheet's complete complaint data/)).toBeDefined();
   });
 });
 

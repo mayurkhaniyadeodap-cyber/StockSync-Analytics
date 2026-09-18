@@ -95,7 +95,13 @@ class NotConnectedError(AppError):
 
 
 class EnvCredentialError(AppError):
-    """An action was attempted that only makes sense for a stored connection."""
+    """Disconnect was pressed on a store that has no row to disconnect.
+
+    Narrower than it was: it used to fire for an already-disconnected row as
+    well, telling the user their store was "configured in .env" when in fact it
+    was in the database and already disconnected. That case is now refused by
+    `NotConnectedError`, which is what actually happened.
+    """
 
     code = "shopify_env_credential"
     status_code = 409
@@ -119,30 +125,69 @@ class ShopProfile:
 
 @dataclass(frozen=True)
 class ResolvedCredential:
-    """A usable credential and where it came from."""
+    """A credential, where it came from, and what shape it is in.
+
+    ``status`` is the stored row's own, so a caller can tell a working
+    credential from an expired one without reaching for the row itself. An
+    ``.env`` credential reports ``connected``: there is no row to hold a verdict
+    against, and the pair either authenticates or it does not.
+    """
 
     shop_domain: str
     token: str
     source: str  # "database" | "environment"
+    status: str
+
+    @property
+    def usable(self) -> bool:
+        """Whether there is anything worth sending to Shopify.
+
+        ``token_expired`` and ``missing_scopes`` are deliberately usable. The
+        first is how a credential that has started working again heals — the
+        next call succeeds and the status is rewritten — and the second is a
+        partial capability the sync is designed to exploit rather than refuse.
+        A disconnected row is not: its ciphertext was overwritten on disconnect,
+        so there is no token left to send.
+        """
+        return self.status != "disconnected" and bool(self.token)
 
 
 def resolve_credential(
     db: Session, settings: Settings, *, workspace_id: int
 ) -> ResolvedCredential | None:
-    """The credential to use, or None if the workspace has no usable one.
+    """The credential this workspace uses. **The one place that decides.**
 
-    A connection stored through the UI wins over ``.env``. That ordering is
-    what makes the fallback safe to leave configured: connecting a store here
-    takes effect immediately without anyone having to remember that a stale
-    development value is sitting in a file, and it cannot be silently
-    overridden by one.
+    **A stored row is authoritative the moment it exists**, whatever state it is
+    in. ``.env`` is a bootstrap for a workspace that has never connected a
+    store, not a standby for one whose connection has gone wrong.
+
+    That last sentence used to be false, and the consequence was bad in a
+    specific way. The rule was "a row that is *connected* wins", so a row that
+    had expired or been disconnected fell through to ``.env`` — which names an
+    arbitrary store, compared against nothing. On a developer's machine the
+    Connection page would report the ``.env`` store as healthy, the freshness
+    check would measure the ``.env`` store, and the sync would go on using the
+    saved store's own expired token and fail. Three components, two different
+    stores, and the one being reported was not the one being synced.
+
+    Callers that need a working credential check :attr:`ResolvedCredential.
+    usable`; callers that need to *describe* the connection read ``status`` and
+    ``source``. Nothing reaches past this function to decide for itself.
     """
     connection = ShopifyConnectionRepository(db).get(workspace_id)
-    if connection is not None and connection.status == "connected":
+    if connection is not None:
+        # A disconnected row holds an empty ciphertext by design, and decrypting
+        # one raises. There is nothing to decrypt and nothing to send.
+        token = (
+            crypto.decrypt(settings, connection.access_token_encrypted)
+            if connection.access_token_encrypted
+            else ""
+        )
         return ResolvedCredential(
             shop_domain=connection.shop_domain,
-            token=crypto.decrypt(settings, connection.access_token_encrypted),
+            token=token,
             source="database",
+            status=connection.status,
         )
 
     if settings.env_shopify_credential_active:
@@ -150,6 +195,7 @@ def resolve_credential(
             shop_domain=normalize_shop_domain(settings.shopify_store_url),
             token=settings.shopify_admin_api_token.strip(),
             source="environment",
+            status="connected",
         )
 
     return None
@@ -462,12 +508,16 @@ def verify_stored_connection(
 def disconnect(db: Session, settings: Settings, *, workspace_id: int) -> ShopifyConnection:
     """Revoke locally: drop the token, keep the record of what was connected."""
     connection = ShopifyConnectionRepository(db).get(workspace_id)
-    if connection is None or connection.status == "disconnected":
-        # Distinguish "nothing connected" from "connected, but by a file this
-        # endpoint cannot edit" — deleting nothing and reporting success would
-        # leave the store still connected on the next page load.
+    if connection is None:
+        # Nothing stored. If `.env` names a store, say which file holds it —
+        # deleting nothing and reporting success would leave it connected on the
+        # next page load.
         if settings.env_shopify_credential_active:
             raise EnvCredentialError
+        raise NotConnectedError
+    if connection.status == "disconnected":
+        # Already done. This is not an `.env` situation whatever `.env` says:
+        # there is a row, and it is disconnected.
         raise NotConnectedError
 
     # Overwritten rather than left in place. A disconnected store that still

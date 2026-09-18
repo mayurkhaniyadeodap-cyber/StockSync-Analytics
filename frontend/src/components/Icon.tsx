@@ -114,6 +114,20 @@ const ICONS: Record<string, IconDef> = {
   },
   filter: { viewBox: '0 0 24 24', d: `<path d="M3 5h18l-7 8v6l-4 2v-8z"/>` },
   trash: { viewBox: '0 0 24 24', d: `<path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/>` },
+  /* The two the KPI cards needed and the set did not have. */
+  up: { viewBox: '0 0 24 24', d: `<path d="M12 19V5m0 0-6 6m6-6 6 6"/>` },
+  pct: {
+    viewBox: '0 0 24 24',
+    d: `<circle cx="7.5" cy="7.5" r="2.5"/><circle cx="16.5" cy="16.5" r="2.5"/><path d="M19 5 5 19"/>`,
+  },
+  bag: {
+    viewBox: '0 0 24 24',
+    d: `<path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/>`,
+  },
+  cols: {
+    viewBox: '0 0 24 24',
+    d: `<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16M15 4v16"/>`,
+  },
   refresh: {
     viewBox: '0 0 24 24',
     d: `<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/>`,

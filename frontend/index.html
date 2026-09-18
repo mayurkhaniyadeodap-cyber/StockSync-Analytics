@@ -4,6 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="light dark" />
+    <!--
+      The product mark, inline rather than a file: it is three rectangles, so a
+      data URI costs less than the request a .svg would make, and it stays in
+      step with src/components/Logo.tsx because both are this same drawing.
+    -->
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='9' fill='%232563eb'/%3E%3Cg fill='%23fff'%3E%3Crect x='6' y='19' width='5.2' height='8' rx='1.6' opacity='.55'/%3E%3Crect x='13.4' y='14' width='5.2' height='13' rx='1.6' opacity='.8'/%3E%3Crect x='20.8' y='7' width='5.2' height='20' rx='1.6'/%3E%3C/g%3E%3C/svg%3E"
+    />
     <title>StockSync Analytics — Inventory &amp; Shopify Sales Analytics</title>
     <!--
       Fonts are self-hosted from /fonts rather than fetched from Google Fonts as

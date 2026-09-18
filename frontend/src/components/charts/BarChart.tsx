@@ -9,14 +9,26 @@
 import { n } from '../../lib/format';
 import { useChartTooltip } from '../../hooks/useChartTooltip';
 
-const W = 720;
+/*
+ * Two drawings of the same chart, wide and narrow.
+ *
+ * The SVG scales to its container and the font sizes below are in *its* units,
+ * so the viewBox width decides how large the type renders. 720 was right while
+ * every bar chart had a full-width panel; in the dashboard's three-across row
+ * the same drawing lands in about 340px and renders its labels at five pixels.
+ *
+ * `compact` is the same chart at a ratio that survives that width. It is a
+ * choice the caller makes, not a measurement, because the alternative — reading
+ * the container — would make the component re-render on every resize for a
+ * decision that only has two useful answers.
+ */
+const WIDE = { W: 720, LW: 228, MAX_LABEL: 30 } as const;
+const NARROW = { W: 470, LW: 156, MAX_LABEL: 22 } as const;
+
 const ROW_H = 30;
-const LW = 228;
 /** Room for the value alone, and the least a value plus a second figure gets. */
 const RW = 68;
 const RW_WITH_META = 132;
-/** Longer labels are clipped rather than allowed to run into the bars. */
-const MAX_LABEL = 30;
 
 const VALUE_SIZE = 11.5;
 const META_SIZE = 11;
@@ -65,6 +77,8 @@ export interface BarChartProps {
   color?: string;
   caption: string;
   onSelect?: (row: BarRow, index: number) => void;
+  /** Narrower drawing, for a panel sharing its row with two others. */
+  compact?: boolean;
 }
 
 export function BarChart({
@@ -73,7 +87,9 @@ export function BarChart({
   color = 'var(--slate)',
   caption,
   onSelect,
+  compact = false,
 }: BarChartProps) {
+  const { W, LW, MAX_LABEL } = compact ? NARROW : WIDE;
   const tooltip = useChartTooltip();
   const height = rows.length * ROW_H + 16;
   const max = Math.max(...rows.map((r) => r.value), 1);

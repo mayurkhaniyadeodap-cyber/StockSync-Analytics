@@ -135,6 +135,9 @@ export function OverviewPage() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip moss" aria-hidden="true">
+            <Icon name="check" size="s" />
+          </span>
           <h3>Quick insights</h3>
           <span className="hint">Generated from this window&rsquo;s figures</span>
         </div>
@@ -158,6 +161,9 @@ export function OverviewPage() {
       <div className="grid2">
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip" aria-hidden="true">
+              <Icon name="chart" size="s" />
+            </span>
             <h3>Sales trend</h3>
             <button className="btn sm" onClick={() => void navigate('/analytics/sales')}>
               Sales analytics <Icon name="right" size="s" />
@@ -194,6 +200,9 @@ export function OverviewPage() {
 
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="warn" size="s" />
+            </span>
             <h3>Complaint mix</h3>
             <button className="btn sm" onClick={() => void navigate('/analytics/complaints')}>
               Complaint analytics <Icon name="right" size="s" />

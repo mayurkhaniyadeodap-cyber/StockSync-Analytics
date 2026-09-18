@@ -13,6 +13,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { BarChart } from './BarChart';
 import { DonutChart } from './DonutChart';
 import { LineChart } from './LineChart';
+import { LINE_WIDE, innerWidth } from './geometry';
 import { StackChart } from './StackChart';
 
 afterEach(cleanup);
@@ -57,8 +58,11 @@ describe('LineChart', () => {
       />,
     );
 
-    // Inner width is 720 − 54 − 14 = 652, so the midpoint is x = 380.
-    expect(paths(container)[0]).toContain('M380.0');
+    // Derived from the chart's own geometry rather than restated: this asserts
+    // that one point lands in the middle, not that the viewBox is 720 wide.
+    expect(paths(container)[0]).toContain(
+      `M${(LINE_WIDE.L + innerWidth(LINE_WIDE) / 2).toFixed(1)}`,
+    );
   });
 
   it('closes the area fill back to the baseline', () => {
@@ -85,6 +89,76 @@ describe('LineChart', () => {
 
     // 5 axis labels + at most 8 date labels.
     expect(container.querySelectorAll('text').length).toBeLessThanOrEqual(13);
+  });
+});
+
+describe('the axis fits inside the drawing', () => {
+  /**
+   * Both of these were invisible in the code and plain on screen: the first
+   * character of "80,100" painted off the left edge of the SVG, and half of
+   * "18 Sept" past the right. Nothing threw — SVG text has no layout box and
+   * simply draws where it is told, including outside the viewBox.
+   */
+
+  function axisText(container: HTMLElement) {
+    return Array.from(container.querySelectorAll('text'));
+  }
+
+  it('widens the left gutter for labels that need it', () => {
+    const { container } = render(
+      <LineChart
+        compact
+        caption="Big numbers"
+        labels={['1 Jul', '2 Jul']}
+        series={[{ name: 'Units', color: 'var(--slate)', values: [71_500, 40_000] }]}
+      />,
+    );
+
+    // Every y-axis label starts at x >= 0, i.e. inside the drawing.
+    const yLabels = axisText(container).filter(
+      (node) => node.getAttribute('text-anchor') === 'end',
+    );
+    expect(yLabels.length).toBeGreaterThan(0);
+    for (const label of yLabels) {
+      const right = Number(label.getAttribute('x'));
+      // Monospace, so width is character count times the advance.
+      const width = (label.textContent ?? '').length * 0.62 * 12;
+      expect(right - width).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('keeps the narrow gutter when the numbers are small', () => {
+    /** The geometry's L is a floor, not a minimum that everything pays. */
+    const { container } = render(
+      <LineChart
+        compact
+        caption="Small numbers"
+        labels={['1 Jul', '2 Jul']}
+        series={[{ name: 'Units', color: 'var(--slate)', values: [3, 5] }]}
+      />,
+    );
+
+    const first = paths(container)[0] ?? '';
+    // 48 is LINE_NARROW.L; a one-character label must not push the plot right.
+    expect(first.startsWith('M48')).toBe(true);
+  });
+
+  it('anchors the end labels inward so neither is cut off', () => {
+    const { container } = render(
+      <LineChart
+        compact
+        caption="Dates"
+        labels={['20 Aug', '28 Aug', '5 Sept', '13 Sept', '18 Sept']}
+        series={[{ name: 'Units', color: 'var(--slate)', values: [1, 2, 3, 4, 5] }]}
+      />,
+    );
+
+    const dates = axisText(container).filter(
+      (node) =>
+        (node.textContent ?? '').includes('Aug') || (node.textContent ?? '').includes('Sept'),
+    );
+    expect(dates[0]?.getAttribute('text-anchor')).toBe('start');
+    expect(dates[dates.length - 1]?.getAttribute('text-anchor')).toBe('end');
   });
 });
 
@@ -299,6 +373,49 @@ describe('DonutChart', () => {
 
     expect(container.querySelectorAll('circle').length).toBe(1);
     expect(screen.getByText('UNITS SOLD')).toBeDefined();
+  });
+});
+
+describe('the compact donut', () => {
+  it('is square and tight around the ring, so it fills a narrow panel', () => {
+    /**
+     * The wide drawing centres a radius-72 ring in a 720-unit box: three
+     * quarters of the width is empty margin, so scaled into a third-of-a-row
+     * panel the ring came out about 80px across.
+     */
+    const { container } = render(
+      <DonutChart
+        compact
+        caption="Stock levels"
+        centerValue="1,372"
+        centerLabel="SKUs"
+        slices={[{ label: 'In stock', value: 30, color: 'var(--moss)' }]}
+      />,
+    );
+
+    const [, , width, height] = (container.querySelector('svg')?.getAttribute('viewBox') ?? '')
+      .split(' ')
+      .map(Number);
+    expect(width).toBe(height);
+
+    const ring = container.querySelector('circle');
+    const r = Number(ring?.getAttribute('r'));
+    const stroke = Number(ring?.getAttribute('stroke-width'));
+    // The ring plus its stroke covers most of the box rather than a corner of it.
+    expect((2 * r + stroke) / (width as number)).toBeGreaterThan(0.85);
+  });
+
+  it('leaves the wide drawing alone, for the panels that have room', () => {
+    const { container } = render(
+      <DonutChart
+        caption="Complaints"
+        centerValue="218"
+        centerLabel="complaints"
+        slices={[{ label: 'Missing', value: 10, color: 'var(--rust)' }]}
+      />,
+    );
+
+    expect(container.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 720 232');
   });
 });
 

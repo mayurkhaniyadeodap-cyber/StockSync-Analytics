@@ -44,7 +44,7 @@ export function AnalyticsFrame({
   // `rebuild` is still on the state for whoever needs it; nothing on this
   // page calls it. A sync recomputes the figures before it reports success,
   // so there is no repair left for a user to make by hand.
-  const { insights, error, range, setRange, reload } = state;
+  const { insights, error, range, setRange, reload, rangeApplies } = state;
 
   if (insights && !insights.has_data) {
     return (
@@ -84,7 +84,15 @@ export function AnalyticsFrame({
               ? `${subtitle} · computed ${freshness(new Date(insights.last_computed_at))}`
               : subtitle
           }
-          actions={<RangePicker value={range} onChange={setRange} label={`${title} range`} />}
+          /* No control on a page the range cannot move. Complaint Analytics
+             reads the sheet's whole complaint record, so a 7D/30D/90D toggle
+             there would be three buttons that change nothing — worse than
+             absent, because it implies the figures beneath it are a slice. */
+          actions={
+            rangeApplies ? (
+              <RangePicker value={range} onChange={setRange} label={`${title} range`} />
+            ) : null
+          }
         />
 
         {error ? (

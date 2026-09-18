@@ -454,6 +454,18 @@ describe('Google Sheets', () => {
   });
 });
 
+/**
+ * The panel a given heading sits in.
+ *
+ * The profile section is two panels — Profile and Change password — so a query
+ * that means one of them in particular says which.
+ */
+function panel(title: string): HTMLElement {
+  const box = screen.getByRole('heading', { name: title }).closest('.panel');
+  if (!box) throw new Error(`No panel around the "${title}" heading`);
+  return box as HTMLElement;
+}
+
 describe('Profile', () => {
   it('shows every field the user has', async () => {
     const { fetcher } = backend();
@@ -462,21 +474,35 @@ describe('Profile', () => {
     const name = (await screen.findByLabelText(/Full name/)) as HTMLInputElement;
     // Seeded from /auth/me, which lands after the first render.
     await waitFor(() => expect(name.value).toBe('Administrator'));
-    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('admin@deodap.in');
-    expect((screen.getByLabelText('Role') as HTMLInputElement).value).toBe('Inventory lead');
-    expect((screen.getByLabelText('Time zone') as HTMLSelectElement).value).toBe(
+
+    const profile = within(panel('Profile'));
+    expect((profile.getByLabelText('Email') as HTMLInputElement).value).toBe('admin@deodap.in');
+    expect((profile.getByLabelText('Role') as HTMLInputElement).value).toBe('Inventory lead');
+    expect((profile.getByLabelText('Time zone') as HTMLSelectElement).value).toBe(
       'Asia/Kolkata',
     );
   });
 
+  /**
+   * Neither the address nor the role is editable from this page.
+   *
+   * A `Sign-in email` panel did offer to change the address, and this test was
+   * rewritten to allow it. The panel has since been taken off the page, so the
+   * original assertion holds again — the endpoints behind it still exist, which
+   * is why this checks the screen rather than the API.
+   */
   it('does not offer to edit the login identity or the role', async () => {
     const { fetcher } = backend();
     renderSettings('profile', fetcher);
     await screen.findByLabelText(/Full name/);
 
-    expect((screen.getByLabelText('Email') as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText('Role') as HTMLInputElement).disabled).toBe(true);
-    expect((screen.getByLabelText(/Full name/) as HTMLInputElement).disabled).toBe(false);
+    const profile = within(panel('Profile'));
+    expect((profile.getByLabelText('Email') as HTMLInputElement).disabled).toBe(true);
+    expect((profile.getByLabelText('Role') as HTMLInputElement).disabled).toBe(true);
+    expect((profile.getByLabelText(/Full name/) as HTMLInputElement).disabled).toBe(false);
+
+    expect(screen.queryByRole('heading', { name: 'Sign-in email' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit email' })).toBeNull();
   });
 
   it('saves the name through the profile endpoint', async () => {
@@ -507,6 +533,102 @@ describe('Profile', () => {
     expect(screen.getByRole('button', { name: 'Save changes' }).hasAttribute('disabled')).toBe(
       true,
     );
+  });
+});
+
+/**
+ * The one place in the app that asks for the current password again after
+ * sign-in. The only rule decided in the browser is whether the two new-password
+ * boxes match; everything else is the server's refusal, shown in its own words.
+ */
+describe('Change password', () => {
+  it('catches two new passwords that do not match before sending anything', async () => {
+    const { fetcher, calls } = backend();
+    renderSettings('profile', fetcher);
+    await screen.findByLabelText(/Full name/);
+
+    const user = userEvent.setup();
+    const pw = within(panel('Change password'));
+    await user.type(pw.getByLabelText('Current password'), 'correct horse battery');
+    await user.type(pw.getByLabelText('New password'), 'a longer secret here');
+    await user.type(pw.getByLabelText('Confirm new password'), 'a longer secret her');
+    await user.click(pw.getByRole('button', { name: 'Change password' }));
+
+    expect(await pw.findByText('The two passwords do not match.')).toBeDefined();
+    expect(sent(calls, 'POST', '/auth/change-password')).toHaveLength(0);
+  });
+
+  it('sends both passwords, clears the form and reports the other sessions ending', async () => {
+    const { fetcher, calls } = backend({
+      'POST /auth/change-password': { ok: true, status: 200, body: ME },
+    });
+    renderSettings('profile', fetcher);
+    await screen.findByLabelText(/Full name/);
+
+    const user = userEvent.setup();
+    const pw = within(panel('Change password'));
+    const current = pw.getByLabelText('Current password') as HTMLInputElement;
+    await user.type(current, 'correct horse battery');
+    await user.type(pw.getByLabelText('New password'), 'a longer secret here');
+    await user.type(pw.getByLabelText('Confirm new password'), 'a longer secret here');
+    await user.click(pw.getByRole('button', { name: 'Change password' }));
+
+    await waitFor(() => expect(sent(calls, 'POST', '/auth/change-password')).toHaveLength(1));
+    expect(sent(calls, 'POST', '/auth/change-password')[0]?.body).toEqual({
+      current_password: 'correct horse battery',
+      new_password: 'a longer secret here',
+    });
+
+    await waitFor(() => expect(current.value).toBe(''));
+    expect(await screen.findByText(/Other devices have been signed out/)).toBeDefined();
+  });
+
+  it('shows the server refusal when the password is too short', async () => {
+    const { fetcher } = backend({
+      'POST /auth/change-password': {
+        ok: false,
+        status: 422,
+        body: {
+          error: {
+            code: 'password_too_weak',
+            message: 'That password is too short.',
+            next: 'Use at least 12 characters.',
+          },
+        },
+      },
+    });
+    renderSettings('profile', fetcher);
+    await screen.findByLabelText(/Full name/);
+
+    const user = userEvent.setup();
+    const pw = within(panel('Change password'));
+    await user.type(pw.getByLabelText('Current password'), 'correct horse battery');
+    await user.type(pw.getByLabelText('New password'), 'short');
+    await user.type(pw.getByLabelText('Confirm new password'), 'short');
+    await user.click(pw.getByRole('button', { name: 'Change password' }));
+
+    expect((await pw.findByRole('alert')).textContent).toContain('That password is too short.');
+  });
+
+  /**
+   * The reveal toggle is a `type="button"`, which is the whole reason this is
+   * tested: as a default submit button it would post the form on every peek.
+   */
+  it('reveals a password without submitting the form', async () => {
+    const { fetcher, calls } = backend();
+    renderSettings('profile', fetcher);
+    await screen.findByLabelText(/Full name/);
+
+    const user = userEvent.setup();
+    const pw = within(panel('Change password'));
+    const field = pw.getByLabelText('New password') as HTMLInputElement;
+    expect(field.type).toBe('password');
+
+    await user.click(pw.getByRole('button', { name: 'Show new password' }));
+    expect(field.type).toBe('text');
+    await user.click(pw.getByRole('button', { name: 'Hide new password' }));
+    expect(field.type).toBe('password');
+    expect(sent(calls, 'POST', '/auth/change-password')).toHaveLength(0);
   });
 });
 

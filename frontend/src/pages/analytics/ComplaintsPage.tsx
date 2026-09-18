@@ -2,11 +2,18 @@
  * Complaint Analytics — the ten categories the sheet carries.
  *
  * Complaints come entirely from the imported sheet: ten integer columns per SKU.
- * **Whether they carry dates depends on the file.** A complaint export has one
- * row per complaint with the day on it, so those figures answer the selected
- * range; an aggregated sheet has no date column, so its totals stand in every
- * range and `ComplaintScopeNote` says so. Every view here is a different cut of
- * the same numbers: by category and by SKU.
+ * **This page is always all-time**, and has no range control for that reason.
+ *
+ * The figures can be windowed — a complaint export carries a date per row, so
+ * `sku_daily_complaints` can be summed over a period, and `?complaints=range`
+ * still does exactly that. This page asks for `total` instead. The date range
+ * is there for Shopify Sales, which this page does not show; a complaint total
+ * that moved with it meant "Total Complaints" here and on the import screen
+ * were different numbers, and the three-button toggle implied the categories
+ * below were a slice of something larger.
+ *
+ * Every view here is a different cut of the same numbers: by category and by
+ * SKU.
  *
  * The counts carry their share or rate beside them rather than in a tooltip
  * only: 412 complaints means little until you know it is 38% of them.
@@ -15,7 +22,6 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-import { ComplaintScopeNote } from '../../components/ComplaintScopeNote';
 import { Icon } from '../../components/Icon';
 import { Skeleton } from '../../components/Skeleton';
 import { BarChart } from '../../components/charts/BarChart';
@@ -28,7 +34,9 @@ import { useInsights } from './useInsights';
 
 export function ComplaintsPage() {
   const navigate = useNavigate();
-  const state = useInsights();
+  // All-time, always. Complaints are the imported sheet's own record; the
+  // date range exists for Shopify Sales, which this page does not show.
+  const state = useInsights({ complaints: 'total' });
   const { insights, loading } = state;
 
   const cards = useMemo(() => {
@@ -63,11 +71,9 @@ export function ComplaintsPage() {
   return (
     <AnalyticsFrame
       title="Complaint Analytics"
-      subtitle="From the imported sheet's own columns"
+      subtitle="From the imported sheet's complete complaint data"
       state={state}
     >
-      <ComplaintScopeNote scope={insights?.complaint_scope} />
-
       <div className="cardgrid four">
         {loading
           ? Array.from({ length: 4 }, (_, i) => (
@@ -83,6 +89,9 @@ export function ComplaintsPage() {
       <div className="grid2">
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="warn" size="s" />
+            </span>
             <h3>Complaint distribution</h3>
             <span className="hint">Share by category</span>
           </div>
@@ -127,6 +136,9 @@ export function ComplaintsPage() {
 
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="filter" size="s" />
+            </span>
             <h3>Complaint categories</h3>
             <span className="hint">Largest first</span>
           </div>
@@ -158,6 +170,9 @@ export function ComplaintsPage() {
           the bars had barely a third of the page to differ across. */}
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip rust" aria-hidden="true">
+            <Icon name="warn" size="s" />
+          </span>
           <h3>Top complaint SKUs</h3>
           <span className="hint">By count, with the stock each one holds</span>
         </div>
@@ -185,6 +200,9 @@ export function ComplaintsPage() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="layers" size="s" />
+          </span>
           <h3>Every SKU</h3>
           <span className="hint">
             Complaints, categories and sales for every imported SKU, in one table

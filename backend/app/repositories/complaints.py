@@ -196,9 +196,20 @@ class ResolvedComplaints:
     scope: ComplaintScope
 
 
-def resolve(db: Session, workspace_id: int, *, since: date, until: date) -> ResolvedComplaints:
-    """Read the sheet's tallies and the dated rows, and decide between them."""
-    window = read(db, workspace_id, since=since, until=until)
+def resolve(
+    db: Session,
+    workspace_id: int,
+    *,
+    since: date,
+    until: date,
+    windowed: bool = True,
+) -> ResolvedComplaints:
+    """Read the sheet's tallies and the dated rows, and decide between them.
+
+    ``windowed=False`` asks for the sheet's own totals for every SKU, dated or
+    not — see :func:`whole_record`.
+    """
+    window = read(db, workspace_id, since=since, until=until) if windowed else whole_record()
     rows = db.execute(
         select(
             InventoryItem.sku_normalized,
@@ -219,6 +230,25 @@ def resolve(db: Session, workspace_id: int, *, since: date, until: date) -> Reso
         total=sum(sum(counts.values()) for counts in by_sku.values()),
         scope=window.scope(totals.items()),
     )
+
+
+def whole_record() -> ComplaintWindow:
+    """A window that places no SKU, so every one keeps the sheet's own total.
+
+    Not a special case in the reader: `ComplaintWindow.counts` already returns
+    the imported tally for any SKU it holds no dates for, so a window holding
+    none at all returns the sheet's whole record for everything. That is the
+    same path a workspace takes when it has only ever imported aggregated
+    sheets, which is why this needs no new branch anywhere downstream.
+
+    The Dashboard asks for this. Its figures are otherwise all snapshots of the
+    newest import, and a complaint total that moved with the date range while
+    the order count beside it did not made the two incomparable — the complaint
+    rate had a numerator and a denominator measured over different periods.
+    Complaint Analytics still asks for the window, where following the range is
+    the entire point of the page.
+    """
+    return ComplaintWindow(windowed={}, dated_total={})
 
 
 def read(db: Session, workspace_id: int, *, since: date, until: date) -> ComplaintWindow:

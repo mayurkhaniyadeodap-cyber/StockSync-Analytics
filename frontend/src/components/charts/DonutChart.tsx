@@ -12,13 +12,21 @@ import { useState } from 'react';
 import { n, pct, sharePct } from '../../lib/format';
 import { useChartTooltip } from '../../hooks/useChartTooltip';
 
-const W = 720;
-const H = 232;
-const CX = W / 2;
-const CY = H / 2;
-const R = 72;
-const SW = 26;
-const C = 2 * Math.PI * R;
+/*
+ * Two drawings, wide and compact.
+ *
+ * The viewBox decides how large the ring renders, because the SVG scales to its
+ * container: a ring of radius 72 centred in a 720-unit box uses a quarter of
+ * the width and leaves the rest empty, so in the dashboard's third-of-a-row
+ * panel it scaled down to about 80px across.
+ *
+ * `COMPACT` is square and tight around the ring — same drawing, none of the
+ * empty margin — so the same panel renders it at roughly the panel's full
+ * width. `WIDE` is unchanged, for the pages where the donut has a half-width
+ * panel to sit in.
+ */
+const WIDE = { W: 720, H: 232, R: 72, SW: 26, VALUE: 24, LABEL: 10.5 } as const;
+const COMPACT = { W: 236, H: 236, R: 88, SW: 30, VALUE: 30, LABEL: 11 } as const;
 
 export interface Slice {
   label: string;
@@ -31,12 +39,25 @@ export interface DonutChartProps {
   centerValue: string;
   centerLabel: string;
   caption: string;
+  /** Square, tight drawing — for a panel sharing its row with two others. */
+  compact?: boolean;
 }
 
-export function DonutChart({ slices, centerValue, centerLabel, caption }: DonutChartProps) {
+export function DonutChart({
+  slices,
+  centerValue,
+  centerLabel,
+  caption,
+  compact = false,
+}: DonutChartProps) {
   const tooltip = useChartTooltip();
   const [active, setActive] = useState<number | null>(null);
   const total = slices.reduce((sum, s) => sum + s.value, 0);
+
+  const { W, H, R, SW, VALUE, LABEL } = compact ? COMPACT : WIDE;
+  const CX = W / 2;
+  const CY = H / 2;
+  const C = 2 * Math.PI * R;
 
   let offset = 0;
 
@@ -99,9 +120,9 @@ export function DonutChart({ slices, centerValue, centerLabel, caption }: DonutC
 
       <text
         x={CX}
-        y={CY - 2}
+        y={CY + VALUE * 0.1}
         textAnchor="middle"
-        fontSize={24}
+        fontSize={VALUE}
         fontFamily="var(--f-mono)"
         fontWeight={600}
         fill="var(--ink)"
@@ -110,9 +131,9 @@ export function DonutChart({ slices, centerValue, centerLabel, caption }: DonutC
       </text>
       <text
         x={CX}
-        y={CY + 18}
+        y={CY + VALUE * 0.8}
         textAnchor="middle"
-        fontSize={10.5}
+        fontSize={LABEL}
         letterSpacing={1.2}
         fill="var(--ink-45)"
       >

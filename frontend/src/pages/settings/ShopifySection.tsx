@@ -48,6 +48,9 @@ export function ShopifySection() {
     return (
       <div className="panel" aria-busy="true">
         <div className="p-hd">
+          <span className="p-chip moss" aria-hidden="true">
+            <Icon name="plug" size="s" />
+          </span>
           <h3>Shopify</h3>
         </div>
         <div className="p-bd">
@@ -63,6 +66,9 @@ export function ShopifySection() {
     return (
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip moss" aria-hidden="true">
+            <Icon name="plug" size="s" />
+          </span>
           <h3>Shopify</h3>
         </div>
         <div className="empty">
@@ -133,6 +139,9 @@ export function ShopifySection() {
   return (
     <div className="panel">
       <div className="p-hd">
+        <span className="p-chip moss" aria-hidden="true">
+          <Icon name="plug" size="s" />
+        </span>
         <h3>Shopify</h3>
         <div className="r">
           {fromEnv && <span className="badge">From .env</span>}

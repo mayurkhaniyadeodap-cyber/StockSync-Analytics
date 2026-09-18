@@ -389,6 +389,80 @@ describe('upload', () => {
   });
 });
 
+describe('the request timeout', () => {
+  /**
+   * `fetch` has no timeout of its own: a request that never answers never
+   * rejects, so whatever is waiting on it waits for ever. That is how a
+   * dashboard ends up stuck on skeletons with no error to show, which is the
+   * bug this guards.
+   */
+
+  it('abandons a request that never answers, with its own message', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new DOMException('signal timed out', 'TimeoutError'))),
+    );
+
+    await expect(request('/analytics/overview')).rejects.toMatchObject({
+      status: 0,
+      code: 'request_timeout',
+    });
+  });
+
+  it('says "took too long", not "could not reach"', async () => {
+    /** Two different problems with two different things to do about them. */
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new DOMException('signal timed out', 'TimeoutError'))),
+    );
+
+    await expect(request('/analytics/overview')).rejects.toThrow(
+      'The server took too long to answer.',
+    );
+  });
+
+  it('still reports a genuine network failure as one', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    );
+
+    await expect(request('/analytics/overview')).rejects.toMatchObject({
+      code: 'network_unreachable',
+    });
+  });
+
+  it('passes an abort signal on every request', async () => {
+    const mock = stub({ ok: true, status: 200, json: () => Promise.resolve({}) });
+
+    await request('/analytics/overview');
+
+    expect(firstInit(mock).signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('gives an upload longer than a read', async () => {
+    /**
+     * The ceiling is a 25MB spreadsheet and the clock covers the bytes going up
+     * as well as the parse coming back, so the read timeout would abandon a
+     * large import that was working.
+     */
+    const timeouts: number[] = [];
+    const original = AbortSignal.timeout.bind(AbortSignal);
+    vi.spyOn(AbortSignal, 'timeout').mockImplementation((ms: number) => {
+      timeouts.push(ms);
+      return original(ms);
+    });
+
+    const mock = stub({ ok: true, status: 200, json: () => Promise.resolve({}) });
+    await request('/analytics/overview');
+    await api.upload('/imports/upload', new File(['x'], 'stock.csv'));
+    expect(mock).toHaveBeenCalledTimes(2);
+
+    expect(timeouts).toHaveLength(2);
+    expect(timeouts[1]).toBeGreaterThan(timeouts[0] as number);
+  });
+});
+
 describe('a renewal that could not be attempted', () => {
   /*
    * The reported bug. `/auth/refresh` has to write — it inserts a session row

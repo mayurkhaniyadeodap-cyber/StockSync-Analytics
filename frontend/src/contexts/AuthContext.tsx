@@ -31,6 +31,16 @@ export interface AuthContextValue {
   logout: () => Promise<void>;
   savePreferences: (patch: PreferencesUpdate) => Promise<void>;
   saveProfile: (patch: ProfileUpdate) => Promise<void>;
+  /**
+   * Adopt a session some other call already established.
+   *
+   * The password-reset endpoint signs the account in as part of the reset — it
+   * sets the cookies and returns the user — so the app has a live session that
+   * this provider has not heard about. Handing it the user is the whole of what
+   * `login` does after its own request, without repeating a request that has
+   * already happened.
+   */
+  adopt: (user: CurrentUser) => void;
 }
 
 export const AuthContext = createContext<AuthContextValue | null>(null);
@@ -203,6 +213,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus('authenticated');
   }, []);
 
+  const adopt = useCallback((me: CurrentUser) => {
+    setUser(me);
+    setStatus('authenticated');
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       await api.post<void>('/auth/logout');
@@ -227,8 +242,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, user, login, logout, savePreferences, saveProfile }),
-    [status, user, login, logout, savePreferences, saveProfile],
+    () => ({ status, user, login, logout, savePreferences, saveProfile, adopt }),
+    [status, user, login, logout, savePreferences, saveProfile, adopt],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -58,6 +58,32 @@ const NETWORK_ERROR: ApiError = {
   next: 'Check your connection and try again.',
 };
 
+const TIMEOUT_ERROR: ApiError = {
+  code: 'request_timeout',
+  message: 'The server took too long to answer.',
+  next: 'Try again — if it keeps happening, the server may be busy rebuilding figures.',
+};
+
+/**
+ * How long a request may hang before it is abandoned.
+ *
+ * `fetch` has no timeout of its own: a request that never answers never
+ * rejects, so the caller waits forever and whatever it is filling stays on its
+ * loading state indefinitely. That is not a hypothetical — it is exactly how a
+ * dashboard ends up stuck on skeletons with no error to show.
+ *
+ * 20 seconds is far above what any read costs (the slowest, a count over 3.5m
+ * line items, is under half a second) and far below the point where a user has
+ * concluded the page is broken.
+ */
+const TIMEOUT_MS = 20_000;
+
+/**
+ * Uploads get longer: the ceiling is a 25MB spreadsheet, and the clock covers
+ * the bytes going up as well as the parse coming back.
+ */
+const UPLOAD_TIMEOUT_MS = 120_000;
+
 /**
  * The endpoints a 401 must never be retried on.
  *
@@ -226,7 +252,7 @@ export function onSessionUnavailable(handler: (status: number) => void): () => v
  * renewal while one is in flight waits on the same promise instead.
  */
 export function refreshSession(): Promise<Renewal> {
-  renewal ??= send('/auth/refresh', { method: 'POST' })
+  renewal ??= send('/auth/refresh', { method: 'POST' }, TIMEOUT_MS)
     .then(async (response): Promise<Renewal> => {
       if (response.ok) {
         const user = (await response.json()) as CurrentUser;
@@ -253,10 +279,14 @@ export function refreshSession(): Promise<Renewal> {
   return renewal;
 }
 
-async function send(path: string, init: RequestInit): Promise<Response> {
+async function send(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
   try {
     return await fetch(`${BASE}${path}`, {
       ...init,
+      // `AbortSignal.timeout` aborts with a TimeoutError, which is how the
+      // catch below tells "took too long" from "could not connect" — two
+      // different problems with two different things to do about them.
+      signal: AbortSignal.timeout(timeoutMs),
       credentials: 'include',
       headers: {
         Accept: 'application/json',
@@ -269,9 +299,10 @@ async function send(path: string, init: RequestInit): Promise<Response> {
         ...init.headers,
       },
     });
-  } catch {
-    // fetch only rejects on network failure, never on a 4xx/5xx.
-    throw new StockSyncApiError(0, NETWORK_ERROR);
+  } catch (caught) {
+    // fetch only rejects on network failure or an abort, never on a 4xx/5xx.
+    const timedOut = caught instanceof DOMException && caught.name === 'TimeoutError';
+    throw new StockSyncApiError(0, timedOut ? TIMEOUT_ERROR : NETWORK_ERROR);
   }
 }
 
@@ -298,8 +329,12 @@ async function unwrap<T>(response: Response): Promise<T> {
   return body as T;
 }
 
-export async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
-  let response = await send(path, init);
+export async function request<T>(
+  path: string,
+  init: RequestInit = {},
+  timeoutMs: number = TIMEOUT_MS,
+): Promise<T> {
+  let response = await send(path, init, timeoutMs);
   let renewed: Renewal['kind'] | 'none' = 'none';
 
   if (response.status === 401 && !NO_RETRY.has(path)) {
@@ -309,7 +344,7 @@ export async function request<T>(path: string, init: RequestInit = {}): Promise<
     if (outcome.kind === 'renewed') {
       // Replaying is safe: every body we send is a JSON string or a FormData,
       // both of which fetch can read twice. Nothing here streams a request.
-      response = await send(path, init);
+      response = await send(path, init, timeoutMs);
     } else if (outcome.kind === 'unavailable') {
       // We could not ask whether the session is still good, so we do not get to
       // conclude it is not. The request fails and the user stays signed in.
@@ -343,6 +378,6 @@ export const api = {
   upload: <T>(path: string, file: File, field = 'file') => {
     const form = new FormData();
     form.append(field, file);
-    return request<T>(path, { method: 'POST', body: form });
+    return request<T>(path, { method: 'POST', body: form }, UPLOAD_TIMEOUT_MS);
   },
 };

@@ -9,6 +9,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useToast } from '../../hooks/useToast';
 import { freshness } from '../../lib/format';
 import { Icon } from '../Icon';
+import { Logo } from '../Logo';
 
 export type SyncState = 'checking' | 'ok' | 'busy' | 'failed' | 'idle';
 
@@ -25,7 +26,7 @@ interface HeaderProps {
   onOpenNav: () => void;
 }
 
-type OpenPopover = 'sync' | 'notifications' | 'user' | null;
+type OpenPopover = 'sync' | 'user' | null;
 
 export function Header({ onOpenNav }: HeaderProps) {
   const { user, logout } = useAuth();
@@ -56,16 +57,21 @@ export function Header({ onOpenNav }: HeaderProps) {
         <Icon name="menu" />
       </button>
 
+      {/*
+        The brand, in the corner it belongs in.
+
+        It moved here from the rail rather than being added alongside it: the
+        header spans the full width *above* the rail, so a lockup in both put
+        two identical ones thirty pixels apart. Here it also survives the rail
+        collapsing to 72px and the drawer closing on a phone, which the rail's
+        copy did not.
+      */}
       <button
-        className="mark"
+        className="hdr-brand"
         onClick={() => navigate('/dashboard')}
-        aria-label="Go to dashboard"
+        aria-label="StockSync Analytics — go to dashboard"
       >
-        <Icon name="layers" size="l" style={{ color: 'var(--slate)' }} />
-        <div style={{ textAlign: 'left' }}>
-          <b>StockSync</b>
-          <small>{user?.workspace.name ?? 'Analytics'}</small>
-        </div>
+        <Logo size={32} wordmark />
       </button>
 
       <div className="hdr-r" ref={headerRight}>
@@ -77,7 +83,13 @@ export function Header({ onOpenNav }: HeaderProps) {
             aria-haspopup="menu"
           >
             <span className={`dot ${sync.tone}`} />
-            <span className="sl">{sync.label}</span>
+            {/* Two lines: the state, and when it was last true. "Synced" alone
+                is only half an answer — synced *when* is the part that decides
+                whether to trust the figures below. */}
+            <span className="sl">
+              <b>{sync.label}</b>
+              {lastSyncedAt ? <small>{freshness(new Date(lastSyncedAt))}</small> : null}
+            </span>
             <Icon name="down" size="s" style={{ opacity: 0.5 }} />
           </button>
 
@@ -116,50 +128,6 @@ export function Header({ onOpenNav }: HeaderProps) {
             >
               <Icon name="clock" size="s" /> View sync history
             </button>
-          </div>
-        </div>
-
-        <div style={{ position: 'relative' }}>
-          <button
-            className="icon-btn"
-            onClick={() => setOpen(open === 'notifications' ? null : 'notifications')}
-            aria-expanded={open === 'notifications'}
-            aria-label="Notifications"
-          >
-            <Icon name="bell" />
-          </button>
-
-          <div className={`pop notif${open === 'notifications' ? ' on' : ''}`}>
-            <div className="pop-hd" style={{ display: 'flex', alignItems: 'center' }}>
-              <b style={{ fontSize: 13 }}>Notifications</b>
-            </div>
-
-            {status.loading ? (
-              <div className="notif-empty">Checking…</div>
-            ) : status.notices.length === 0 ? (
-              // Only reached when every check actually passed, so it means
-              // something now.
-              <div className="notif-empty">You&rsquo;re all caught up.</div>
-            ) : (
-              status.notices.map((notice) => (
-                <button
-                  key={notice.key}
-                  className="notif-item"
-                  onClick={() => {
-                    close();
-                    navigate(notice.to);
-                  }}
-                >
-                  <span className={`dot ${notice.tone}`} style={{ marginTop: 5 }} />
-                  <span>
-                    <b style={{ display: 'block', fontSize: 12.5 }}>{notice.title}</b>
-                    <small style={{ color: 'var(--ink-45)', fontSize: 11.5 }}>
-                      {notice.detail}
-                    </small>
-                  </span>
-                </button>
-              ))
-            )}
           </div>
         </div>
 

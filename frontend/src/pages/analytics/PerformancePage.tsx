@@ -187,6 +187,9 @@ export function PerformancePage() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="filter" size="s" />
+          </span>
           <h3>Filters</h3>
           {table ? <span className="hint">{n(table.total)} rows match</span> : null}
           <div className="r">

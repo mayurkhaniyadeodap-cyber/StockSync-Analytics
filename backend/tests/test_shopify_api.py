@@ -551,18 +551,51 @@ class TestEnvironmentCredential:
         assert body["source"] == "database"
         assert body["connection"]["shop_domain"] == "mystore.myshopify.com"
 
-    def test_disconnecting_falls_back_to_the_env_store(
+    def test_disconnecting_does_not_fall_back_to_the_env_store(
         self, env_shopify: TestClient, monkeypatch
     ) -> None:
+        """The disconnected row, not the `.env` store.
+
+        This asserted the opposite until the fallback was tightened. Handing
+        back `.env` here made Disconnect look as though it had failed: the page
+        came back reporting a connected store, while a sync refused because the
+        row it actually reads was disconnected.
+        """
         install(monkeypatch, happy)
         env_shopify.post(CONNECTION, json=GOOD)
 
         body = env_shopify.delete(CONNECTION).json()
 
-        # The stored row is gone, but .env still names a store — showing the
-        # empty state here would be a lie the next page load corrects.
-        assert body["source"] == "environment"
-        assert body["connection"]["shop_domain"] == "envstore.myshopify.com"
+        assert body["source"] == "database"
+        assert body["connected"] is False
+        assert body["connection"]["status"] == "disconnected"
+        assert body["connection"]["shop_domain"] == "mystore.myshopify.com"
+
+    def test_a_disconnected_row_keeps_the_env_store_out_of_the_page(
+        self, env_shopify: TestClient, monkeypatch
+    ) -> None:
+        """And it stays that way on the next load, not just in the response."""
+        install(monkeypatch, happy)
+        env_shopify.post(CONNECTION, json=GOOD)
+        env_shopify.delete(CONNECTION)
+
+        body = env_shopify.get(CONNECTION).json()
+
+        assert body["source"] == "database"
+        assert body["connection"]["shop_domain"] == "mystore.myshopify.com"
+
+    def test_disconnecting_twice_says_what_actually_happened(
+        self, env_shopify: TestClient, monkeypatch
+    ) -> None:
+        """Not "configured in .env" — there is a row, and it is disconnected."""
+        install(monkeypatch, happy)
+        env_shopify.post(CONNECTION, json=GOOD)
+        env_shopify.delete(CONNECTION)
+
+        response = env_shopify.delete(CONNECTION)
+
+        assert response.status_code == 404
+        assert response.json()["error"]["code"] == "shopify_not_connected"
 
     def test_disconnecting_an_env_only_store_explains_itself(self, env_shopify: TestClient) -> None:
         response = env_shopify.delete(CONNECTION)

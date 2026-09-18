@@ -17,7 +17,7 @@
   gap: 7px;
   height: 36px;
   padding: 0 14px;
-  border-radius: var(--r);
+  border-radius: var(--r-sm);
   font-size: 13.5px;
   font-weight: 600;
   border: 1px solid var(--line);
@@ -31,7 +31,8 @@
 }
 
 .btn:hover {
-  background: var(--tint);
+  background: var(--sub);
+  border-color: color-mix(in srgb, var(--slate) 35%, var(--line));
 }
 
 .btn[disabled] {
@@ -106,8 +107,8 @@
 }
 
 .btn.sm {
-  height: 29px;
-  padding: 0 10px;
+  height: 30px;
+  padding: 0 11px;
   font-size: 12.5px;
 }
 
@@ -123,6 +124,7 @@
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--r);
+  box-shadow: var(--shadow-card);
   overflow: hidden;
 }
 
@@ -148,20 +150,29 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 13px 16px;
-  border-bottom: 1px solid var(--line);
-  background: var(--sub);
+  padding: 15px 18px 13px;
   flex-wrap: wrap;
 }
 
 .p-hd h3 {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 650;
 }
 
+/*
+ * The subtitle sits *under* the title, not beside it.
+ *
+ * Done with `flex-basis: 100%` on a wrapping row rather than by wrapping the
+ * two in a div, because every panel in the app already renders them as siblings
+ * — forty-odd call sites that all get the stacked header for free. `order`
+ * keeps the right-hand controls on the first line where the title is.
+ */
 .p-hd .hint {
-  font-size: 12px;
+  font-size: 12.5px;
   color: var(--ink-45);
+  flex-basis: 100%;
+  order: 10;
+  margin-top: -5px;
 }
 
 .p-hd .r {
@@ -169,16 +180,93 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  order: 5;
+}
+
+/*
+ * The coloured glyph that opens every panel header.
+ *
+ * Optional: a panel without one is still a panel. `--chip` is the tone, set
+ * per instance by `.chip.moss` and friends so the icon inherits the same status
+ * palette as badges and dots.
+ */
+.p-chip {
+  --chip: var(--slate);
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+  border-radius: var(--r-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--chip) 12%, transparent);
+  color: var(--chip);
+  order: 0;
+}
+.p-chip.moss {
+  --chip: var(--moss);
+}
+.p-chip.amber {
+  --chip: var(--amber);
+}
+.p-chip.rust {
+  --chip: var(--rust);
+}
+.p-chip.clay {
+  --chip: var(--clay);
+}
+
+/*
+ * The caveat toggle.
+ *
+ * Deliberately quiet: it qualifies a figure rather than competing with it, and
+ * three loud markers along a row of three panels would read as three warnings.
+ */
+.p-info {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  margin-left: -4px;
+  border-radius: 50%;
+  display: inline-grid;
+  place-items: center;
+  color: var(--ink-45);
+  order: 1;
+  transition:
+    background var(--t),
+    color var(--t);
+}
+.p-info:hover,
+.p-info.on {
+  background: var(--tint);
+  color: var(--slate);
+}
+/* Full width on the header's wrapping row, under everything else in it. */
+.p-note {
+  flex-basis: 100%;
+  order: 20;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--sub);
+  border: 1px solid var(--line);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-45);
+}
+.p-note b {
+  color: var(--ink-60);
+  font-weight: 600;
 }
 
 .p-bd {
-  padding: 16px;
+  padding: 4px 18px 18px;
 }
 
 .p-ft {
-  padding: 12px 16px;
+  padding: 12px 18px;
   border-top: 1px solid var(--line);
-  background: var(--sub);
+  background: transparent;
   display: flex;
   gap: 8px;
   align-items: center;
@@ -192,12 +280,12 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  height: 21px;
-  padding: 0 7px;
-  border-radius: 4px;
-  font-size: 11px;
+  height: 22px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
   background: var(--tint);
   color: var(--ink-60);
   border: 1px solid var(--line);
@@ -381,8 +469,8 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  gap: 14px;
+  padding: 0 20px;
   background: var(--paper);
   border-bottom: 1px solid var(--line);
   position: relative;
@@ -414,11 +502,11 @@
 }
 .search input {
   width: 100%;
-  height: 36px;
-  padding: 0 12px 0 34px;
+  height: 38px;
+  padding: 0 12px 0 36px;
   border: 1px solid var(--line);
   background: var(--fog);
-  border-radius: var(--r);
+  border-radius: var(--r-sm);
   transition:
     border-color var(--t),
     background var(--t);
@@ -431,15 +519,17 @@
 }
 .search svg {
   position: absolute;
-  left: 10px;
-  top: 10px;
+  left: 11px;
+  top: 50%;
+  transform: translateY(-50%);
   color: var(--ink-45);
+  pointer-events: none;
 }
 .hdr-r {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 .icon-btn {
   width: 34px;
@@ -470,11 +560,12 @@
 .syncpill {
   display: flex;
   align-items: center;
-  gap: 7px;
-  height: 32px;
-  padding: 0 11px;
+  gap: 8px;
+  height: 44px;
+  padding: 0 13px;
   border: 1px solid var(--line);
   border-radius: 100px;
+  background: var(--paper);
   font-size: 12.5px;
   font-weight: 500;
   transition: background var(--t);
@@ -523,29 +614,98 @@
 .side {
   width: var(--side-w);
   flex: 0 0 auto;
-  background: var(--paper);
-  border-right: 1px solid var(--line);
+  background: var(--nav-bg);
+  border-right: 1px solid var(--nav-bg-deep);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   transition: width var(--t);
+  /* Every rule below inherits from these, so the rail's palette is swapped in
+     one place and no descendant reaches for a global ink token. */
+  color: var(--nav-ink-60);
+}
+/* The brand in the header's corner. A button, because it goes to the dashboard
+   — the one navigation the bar itself offers. */
+.hdr-brand {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 4px 8px 4px 4px;
+  border-radius: var(--r-sm);
+  transition: background var(--t);
+}
+.hdr-brand:hover {
+  background: var(--tint);
+}
+
+/* ---- the product mark ------------------------------------------------
+   One rule set, used by the rail, the header, the sign-in card and the boot
+   screen, so the brand does not change weight or colour per surface.
+   -------------------------------------------------------------------- */
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 0 0 auto;
+}
+.logo-tile {
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  background: var(--slate);
+  color: #fff;
+  /* The blue is the same on navy and on white, so the tile needs its own
+     contrast against the rail rather than borrowing the page's. */
+  box-shadow: 0 1px 2px #0f172a24;
+}
+.logo-txt {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+.logo-txt b {
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--ink);
+}
+.logo-txt small {
+  font-size: 9.5px;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: var(--ink-45);
+}
+/* On the rail the page's ink tokens are invisible, so the lockup takes the
+   rail's own. */
+.logo.on-dark .logo-txt b {
+  color: var(--nav-ink);
+}
+.logo.on-dark .logo-txt small {
+  color: var(--nav-ink-45);
+}
+.logo.on-dark .logo-tile {
+  background: var(--nav-accent);
 }
 .side-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 10px 8px;
+  padding: 14px 10px 8px;
 }
 .side-grp {
-  padding: 14px 12px 5px;
+  padding: 18px 12px 6px;
+  color: var(--nav-ink-45);
+  font-size: 10px;
+  letter-spacing: 0.14em;
 }
 .nav {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 36px;
-  padding: 0 10px;
-  border-radius: var(--r);
-  color: var(--ink-60);
+  height: 38px;
+  padding: 0 11px;
+  border-radius: var(--r-sm);
+  color: var(--nav-ink-60);
   font-size: 13.5px;
   font-weight: 500;
   width: 100%;
@@ -559,24 +719,22 @@
   flex: 0 0 18px;
 }
 .nav:hover {
-  background: var(--tint);
-  color: var(--ink);
+  background: var(--nav-tint);
+  color: var(--nav-ink);
 }
+/* A solid blue pill, not a tint. On a rail this dark a 12%-alpha fill is barely
+   a shade, and "which page am I on" is the one question the rail must answer
+   from across a room. */
 .nav.on {
-  background: var(--tint-strong);
-  color: var(--ink);
+  background: var(--nav-accent);
+  color: #fff;
   font-weight: 600;
 }
-.nav.on::before {
-  content: '';
-  position: absolute;
-  left: -10px;
-  top: 6px;
-  bottom: 6px;
-  width: 3px;
-  background: var(--slate);
-  border-radius: 0 2px 2px 0;
+.nav.on svg {
+  color: #fff;
 }
+/* No left marker any more — the filled pill is the marker, and both together
+   read as two competing indicators of one state. */
 /* A sub-page of the section above it. Indented and one step quieter, so the
    parent still reads as the heading of the group. */
 .nav.sub {
@@ -584,7 +742,7 @@
   padding-left: 30px;
   font-size: 13px;
   font-weight: 450;
-  color: var(--ink-45);
+  color: var(--nav-ink-45);
 }
 .nav.sub svg {
   /* The icon would compete with the parent's at this indent; the guide line
@@ -598,23 +756,18 @@
   top: 0;
   bottom: 0;
   width: 1px;
-  background: var(--line);
+  background: var(--nav-line);
 }
 .nav.sub:hover {
-  color: var(--ink);
+  color: var(--nav-ink);
 }
 .nav.sub.on {
-  color: var(--ink);
+  color: #fff;
   font-weight: 600;
-  background: var(--tint);
-}
-/* The parent already carries the section marker; a second bar at this indent
-   reads as a separate section rather than a child of one. */
-.nav.sub.on::before {
-  display: none;
+  background: var(--nav-accent);
 }
 .nav.sub.on::after {
-  background: var(--slate);
+  background: #fff6;
   width: 2px;
 }
 /* Collapsed to 72px there is no room to indent, so sub-pages are reachable from
@@ -632,7 +785,7 @@
 .nav .cnt {
   font-family: var(--f-mono);
   font-size: 11px;
-  color: var(--ink-45);
+  color: var(--nav-ink-45);
 }
 .nav .alert {
   width: 6px;
@@ -641,10 +794,18 @@
   background: var(--rust);
   flex: 0 0 6px;
 }
+/* Separates the seven working destinations from Settings. Was an inline style
+   reaching for --line, which is the light theme's divider and vanished against
+   the navy. */
+.side-rule {
+  height: 1px;
+  margin: 12px 2px;
+  background: var(--nav-line);
+}
 .side-foot {
-  border-top: 1px solid var(--line);
+  border-top: 1px solid var(--nav-line);
   padding: 8px 10px;
-  background: var(--sub);
+  background: var(--nav-bg-deep);
 }
 .side.mini {
   width: var(--side-c);
@@ -784,30 +945,34 @@
 }
 
 /* segmented */
+/* The segmented control reads as one control with a selected segment, so the
+   selection is filled rather than tinted — the same decision as the rail's
+   active pill, for the same reason. */
 .seg {
   display: inline-flex;
   border: 1px solid var(--line);
-  border-radius: var(--r);
+  border-radius: var(--r-sm);
   overflow: hidden;
-  background: var(--paper);
+  background: var(--sub);
+  padding: 2px;
+  gap: 2px;
+}
+.seg button {
+  border-radius: 6px;
 }
 .seg button {
   padding: 0 11px;
-  height: 30px;
+  height: 28px;
   font-size: 12.5px;
   font-weight: 500;
   color: var(--ink-60);
-  border-right: 1px solid var(--line);
   transition:
     background var(--t),
     color var(--t);
 }
-.seg button:last-child {
-  border-right: none;
-}
 .seg button.on {
-  background: var(--tint-strong);
-  color: var(--ink);
+  background: var(--slate);
+  color: #fff;
   font-weight: 600;
 }
 .seg.mono button {
@@ -837,7 +1002,7 @@ textarea.inp {
   padding: 0 11px;
   background: var(--paper);
   border: 1px solid var(--line);
-  border-radius: var(--r);
+  border-radius: var(--r-sm);
   transition:
     box-shadow var(--t),
     border-color var(--t);
@@ -977,15 +1142,130 @@ textarea.inp {
    §5 conflicts C7 and C8: the card is 420px rather than 392px, and the
    fields are 42px rather than the global 38px.
    -------------------------------------------------------------------- */
+/* ---- signed-out screens (sign in, forgot, reset) --------------------
+   A split screen: the product on the left, the form on the right. Below
+   900px the left panel is not rendered and the form is the page.
+   -------------------------------------------------------------------- */
 #login {
   position: fixed;
   inset: 0;
   z-index: 200;
   background: var(--fog);
   display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+  transition: opacity 180ms ease;
+  overflow: auto;
+}
+.auth-aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 40px;
+  color: var(--nav-ink);
+  /* The rail's navy, not a new colour: this is the same product, and a
+     sign-in screen introducing a shade nothing else uses is a sign-in screen
+     that looks like a different application. */
+  background: radial-gradient(110% 80% at 80% 0%, #2b7fff26 0%, transparent 60%), var(--nav-bg);
+}
+.auth-aside-mid {
+  max-width: 460px;
+}
+.auth-hero {
+  font-size: clamp(30px, 3.4vw, 46px);
+  line-height: 1.08;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 16px;
+}
+.auth-hero span {
+  color: var(--nav-accent);
+}
+.auth-hero-sub {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--nav-ink-60);
+}
+.auth-aside-foot {
+  font-size: 12px;
+  color: var(--nav-ink-45);
+}
+
+.auth-main {
+  display: grid;
   place-items: center;
   padding: 24px;
-  transition: opacity 180ms ease;
+  min-width: 0;
+}
+.auth-card {
+  width: 100%;
+  max-width: 400px;
+}
+.auth-h1 {
+  font-size: 27px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+}
+.auth-sub {
+  margin: 0 0 26px;
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink-45);
+}
+/* The label and its "Forgot password?" on one line. */
+.field-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+.auth-link,
+.auth-alt a {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--slate);
+}
+.auth-link:hover,
+.auth-alt a:hover {
+  text-decoration: underline;
+}
+.auth-alt {
+  margin: 18px 0 0;
+  font-size: 13px;
+  color: var(--ink-45);
+  text-align: center;
+}
+/* The tick on the "check your email" screen. */
+.auth-ok {
+  width: 52px;
+  height: 52px;
+  margin-bottom: 18px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--moss) 14%, transparent);
+  color: var(--moss);
+}
+.auth-card .btn.blk {
+  height: 44px;
+}
+/* A Link styled as a button still needs to centre its own text. */
+.auth-card a.btn.blk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+@media (max-width: 899px) {
+  #login {
+    grid-template-columns: 1fr;
+  }
+  /* Not merely hidden: rendering a hero panel above a login form on a phone is
+     a screen of scrolling before anything useful. */
+  .auth-aside {
+    display: none;
+  }
 }
 #login.gone {
   opacity: 0;
@@ -1069,18 +1349,22 @@ table.tbl {
   border-spacing: 0;
   font-size: 13px;
 }
+/* The head is tinted rather than white now. The panel header above it lost its
+   own rule and tint, so without this the column names floated free of the rows
+   they name. */
 .tbl thead th {
   position: sticky;
   top: 0;
   z-index: 5;
-  background: var(--paper);
+  background: var(--sub);
   text-align: left;
   font-size: 10.5px;
   font-weight: 700;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--ink-45);
-  padding: 10px 12px;
+  padding: 11px 14px;
+  border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
   white-space: nowrap;
   cursor: pointer;
@@ -1099,9 +1383,13 @@ table.tbl {
   color: var(--slate);
 }
 .tbl td {
-  padding: 11px 12px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
+}
+/* The last row's rule doubles with the panel edge or the footer's own. */
+.tbl tbody tr:last-child td {
+  border-bottom: 0;
 }
 .tbl td.n {
   text-align: right;
@@ -1118,7 +1406,7 @@ table.tbl {
 }
 .tbl tbody tr td:first-child {
   border-left: 3px solid transparent;
-  padding-left: 13px;
+  padding-left: 15px;
 }
 .tbl tr.s-ok td:first-child {
   border-left-color: var(--moss);
@@ -1129,11 +1417,16 @@ table.tbl {
 .tbl tr.s-bad td:first-child {
   border-left-color: var(--rust);
 }
-.tbl.sticky-1 td:first-child,
-.tbl.sticky-1 th:first-child {
+.tbl.sticky-1 td:first-child {
   position: sticky;
   left: 0;
   background: var(--paper);
+  z-index: 4;
+}
+.tbl.sticky-1 th:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--sub);
   z-index: 4;
 }
 .tbl.sticky-1 thead th:first-child {
@@ -1154,10 +1447,10 @@ table.tbl {
   white-space: nowrap;
 }
 .tbl.compact td {
-  padding: 6px 12px;
+  padding: 7px 14px;
 }
 .tbl.compact thead th {
-  padding: 7px 12px;
+  padding: 8px 14px;
 }
 /* the analytics date range: presets on one line, the custom pair below them
    so opening it never reflows the header actions beside it */
@@ -1192,7 +1485,7 @@ table.tbl {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 11px 16px;
+  padding: 12px 18px;
   border-top: 1px solid var(--line);
   background: var(--sub);
   font-size: 12.5px;
@@ -1208,7 +1501,8 @@ table.tbl {
   background: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--r);
-  padding: 13px 14px 12px;
+  box-shadow: var(--shadow-card);
+  padding: 15px 16px 14px;
   text-align: left;
   position: relative;
   overflow: hidden;
@@ -1240,27 +1534,86 @@ table.tbl {
 .kpi.bad::after {
   background: var(--rust);
 }
+/*
+ * The icon chip, and the label beside it.
+ *
+ * `.kpi-top` is optional — a card that passes no icon renders the label alone
+ * and every other rule below still applies, which is what keeps the six filter
+ * cards elsewhere in the app working unchanged.
+ */
+.kpi-top {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.kpi-ico {
+  --chip: var(--slate);
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  border-radius: var(--r-xs);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--chip) 12%, transparent);
+  color: var(--chip);
+}
+.kpi-ico.moss {
+  --chip: var(--moss);
+}
+.kpi-ico.amber {
+  --chip: var(--amber);
+}
+.kpi-ico.rust {
+  --chip: var(--rust);
+}
+.kpi-ico.clay {
+  --chip: var(--clay);
+}
 .kpi-lbl {
-  font-size: 10.5px;
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--ink-45);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--ink-60);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .kpi-val {
-  font-size: 21px;
-  font-weight: 600;
-  margin-top: 7px;
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1.15;
   display: block;
 }
-.kpi-delta {
-  font-size: 11px;
-  margin-top: 3px;
-  color: var(--ink-45);
+/* The change against the period before this one, where the API actually
+   reports one. Green up, red down — except on a card where down is the good
+   direction, which passes `.good`/`.poor` instead of leaving it to the sign. */
+.kpi-trend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 9px;
+  font-size: 12.5px;
+  font-weight: 600;
   font-family: var(--f-mono);
+  color: var(--ink-45);
+}
+.kpi-trend.good {
+  color: var(--moss);
+}
+.kpi-trend.poor {
+  color: var(--rust);
+}
+.kpi-trend svg {
+  flex: 0 0 auto;
+}
+.kpi-delta {
+  font-size: 12px;
+  margin-top: 7px;
+  color: var(--ink-45);
+  display: block;
 }
 .kpi-delta.up {
   color: var(--moss);
@@ -1276,8 +1629,15 @@ table.tbl {
 .cardgrid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 14px;
   margin-bottom: 18px;
+}
+/* Six across, on a screen wide enough to read them. Below that they fall to
+   three, two and one rather than shrinking past legibility. */
+@media (min-width: 1440px) {
+  .cardgrid.six {
+    grid-template-columns: repeat(6, 1fr);
+  }
 }
 @media (max-width: 1023px) {
   .cardgrid {
@@ -1370,6 +1730,215 @@ table.tbl {
 }
 @media (max-width: 560px) {
   .cardgrid.four {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------
+   Dashboard composition.
+
+   Three rows, each with its own proportions rather than one uniform grid: the
+   figures, the charts, the tables. Every one collapses to a single column on a
+   phone, and the breakpoints are the app's existing ones so the rail, the
+   header and the page turn together.
+   ------------------------------------------------------------ */
+/* The store's own state: the connection and the sync it drives, side by side
+   under the figures they qualify. */
+.dash-rail {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 18px;
+  margin-bottom: 18px;
+  align-items: start;
+}
+.rail-val {
+  font-size: 17px;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.rail-val.sm {
+  font-size: 15px;
+}
+.rail-note {
+  font-size: 12.5px;
+  color: var(--ink-45);
+}
+.rail-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 18px;
+  align-items: center;
+}
+/* Three figures and the action. The freshness column carries a sentence, so it
+   gets the slack. */
+.rail-stats.four {
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+}
+@media (max-width: 1279px) {
+  .rail-stats.four {
+    grid-template-columns: 1fr 1fr;
+  }
+  .rail-stats.four .rail-act {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+}
+.rail-stat .stat-lbl {
+  margin-bottom: 4px;
+}
+.rail-act {
+  justify-self: end;
+}
+@media (max-width: 767px) {
+  .rail-stats {
+    grid-template-columns: 1fr;
+    gap: 14px;
+  }
+  .rail-act {
+    justify-self: stretch;
+  }
+  .rail-act .btn {
+    width: 100%;
+  }
+}
+
+/*
+ * The three charts, as one balanced row.
+ *
+ * Equal columns, and `stretch` rather than `start`, so the three are the same
+ * height whatever their content — a donut, a line and five bars all end at the
+ * same edge. The panels become flex columns below so the chart area, not the
+ * header, takes up the slack.
+ */
+.grid3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-bottom: 18px;
+  align-items: stretch;
+}
+.grid3 > .panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+/*
+ * The chart takes the slack; the header and the legend keep their own size.
+ *
+ * `.donut-row` is excluded because it lays itself out as a grid, and this rule
+ * — three classes to its one — was overriding that `display`, collapsing the
+ * ring and its key into a single flex column whatever the breakpoint said.
+ */
+.grid3 > .panel > .chart-wrap,
+.grid3 > .panel > .p-bd:not(.donut-row) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+}
+.grid3 > .panel > .donut-row {
+  flex: 1;
+  align-content: center;
+  min-width: 0;
+}
+/* An SVG in a flex column needs to be told it may shrink, or it claims its
+   intrinsic width and pushes the panel wider than its grid cell. */
+.grid3 .chart-wrap svg,
+.grid3 .p-bd svg {
+  max-width: 100%;
+  height: auto;
+}
+/* The attention list is five short columns; the performance table is sixteen. */
+.grid-tables {
+  display: grid;
+  grid-template-columns: 1fr 1.55fr;
+  gap: 18px;
+  align-items: start;
+}
+.grid-tables > .panel + .panel,
+.grid3 > .panel + .panel {
+  margin-top: 0;
+}
+
+@media (max-width: 1439px) {
+  .grid3 {
+    grid-template-columns: 1fr;
+  }
+  .grid-tables {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 1023px) {
+  .dash-rail {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* The donut and its key. In a third-of-a-row panel there is no room for both
+   side by side, so the key goes under the ring instead of squeezing it. */
+.donut-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 20px;
+  align-items: center;
+  justify-items: center;
+}
+/* The ring is square, so an unbounded width makes it as tall as the panel. This
+   is what stops it swallowing the key on a wide screen. */
+.donut-row .chart-wrap {
+  width: 100%;
+  max-width: 240px;
+  padding: 0;
+}
+.donut-row .donut-key {
+  width: 100%;
+}
+@media (min-width: 1600px) {
+  .donut-row {
+    grid-template-columns: auto minmax(0, 1fr);
+    justify-items: stretch;
+  }
+  .donut-row .chart-wrap {
+    width: 200px;
+  }
+}
+.donut-key {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 11px;
+  font-size: 12.5px;
+}
+.donut-key li {
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+}
+.donut-key i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.donut-key .k-lbl {
+  color: var(--ink-60);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.donut-key .k-pct {
+  color: var(--ink-45);
+  font-size: 12px;
+}
+.donut-key .k-val {
+  font-weight: 600;
+  min-width: 42px;
+  text-align: right;
+}
+@media (max-width: 560px) {
+  .donut-row {
     grid-template-columns: 1fr;
   }
 }
@@ -1491,11 +2060,38 @@ table.tbl {
    same secondary treatment as .p-hd .hint, so it reads as a caption rather than
    as a warning — nothing is wrong, the chart simply counts something wider than
    the card. */
+/*
+ * A qualifier under a chart, set apart from it.
+ *
+ * Grey text along a panel's bottom edge reads as part of the chart's own
+ * labelling, which is exactly wrong for a sentence whose whole job is to say
+ * what the chart does *not* cover.
+ */
+.note-box,
 .trend-scope {
-  padding: 0 14px 14px;
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--r-sm);
+  background: var(--sub);
+  border: 1px solid var(--line);
   font-size: 12px;
   line-height: 1.5;
   color: var(--ink-45);
+}
+.note-box svg,
+.trend-scope svg {
+  flex: 0 0 auto;
+  margin-top: 1px;
+  color: var(--slate);
+}
+.trend-scope {
+  margin: 0 18px 18px;
+}
+/* The aside already sits inside the footer's own padding. */
+.p-ft .note-box {
+  flex: 1;
 }
 .trend-scope b {
   color: var(--ink-60);
@@ -1576,6 +2172,16 @@ table.tbl {
    count to a 2x2 that always fills. */
 .stat-row.two {
   grid-template-columns: repeat(2, 1fr);
+}
+/* Three, for the same reason as `.two` above: auto-fit drops a half-width panel
+   to two columns and the third cell's empty half reads as a shaded block. */
+.stat-row.three {
+  grid-template-columns: repeat(3, 1fr);
+}
+@media (max-width: 560px) {
+  .stat-row.three {
+    grid-template-columns: 1fr;
+  }
 }
 /* Four equal columns with a divider between each — the 1px grid gap over the
    container's line colour is what draws them, so no border per cell. Collapses
@@ -1844,6 +2450,12 @@ select.inp.sm {
    STATES: EMPTY / SKELETON (§18)
    ============================================================ */
 /* empty / loading / error states (§18) */
+.empty.sm {
+  padding: 18px 16px 22px;
+}
+.empty.sm p {
+  font-size: 12.5px;
+}
 .empty {
   text-align: center;
   padding: 52px 24px;
@@ -1851,10 +2463,10 @@ select.inp.sm {
   margin: 0 auto;
 }
 .empty .ei {
-  width: 46px;
-  height: 46px;
+  width: 52px;
+  height: 52px;
   border-radius: var(--r);
-  background: var(--tint-strong);
+  background: var(--tint);
   color: var(--slate);
   display: grid;
   place-items: center;
@@ -2065,49 +2677,6 @@ select.inp.sm {
 .pop-sep {
   height: 1px;
   background: var(--line);
-}
-.notif {
-  width: min(360px, calc(100vw - 24px));
-}
-.notif-item {
-  display: flex;
-  /* A notice is a title over a detail line, so the dot aligns to the first
-     line rather than to the middle of a two-line block. */
-  align-items: flex-start;
-  gap: 11px;
-  padding: 12px 13px;
-  border-bottom: 1px solid var(--line);
-  text-align: left;
-  width: 100%;
-  transition: background var(--t);
-}
-.notif-item:hover {
-  background: var(--tint);
-}
-.notif-item .nb {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  margin-top: 6px;
-  flex: 0 0 7px;
-}
-.notif-item p {
-  margin: 0;
-  font-size: 12.5px;
-  line-height: 1.45;
-}
-.notif-item time {
-  font-size: 11px;
-  color: var(--ink-45);
-}
-.notif-item:last-child {
-  border-bottom: 0;
-}
-.notif-empty {
-  padding: 26px;
-  text-align: center;
-  color: var(--ink-45);
-  font-size: 13px;
 }
 .results {
   position: absolute;
@@ -2419,9 +2988,97 @@ select.inp.sm {
 .mark:focus-visible {
   border-radius: var(--r);
 }
+.syncpill .sl {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.25;
+  text-align: left;
+}
+.syncpill .sl b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.syncpill .sl small {
+  font-size: 11px;
+  color: var(--ink-45);
+  white-space: nowrap;
+}
+
 .syncpill:focus-visible,
 .switch:focus-visible {
   border-radius: 100px;
+}
+
+/* A stock figure of zero, in a ranking. Red because "sold 512, none left" is
+   the row you act on, and it reads as an ordinary number otherwise. */
+.tbl td.n.out {
+  color: var(--rust);
+  font-weight: 600;
+}
+
+/* What the date range does and does not touch, said once above the figures. */
+.range-scope {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 11px 14px;
+  margin-bottom: 14px;
+  border-radius: var(--r-sm);
+  background: var(--sub);
+  border: 1px solid var(--line);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink-45);
+}
+.range-scope svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--slate);
+}
+.range-scope b {
+  color: var(--ink-60);
+  font-weight: 600;
+}
+
+/* Pagination, in the table footer. */
+.pager {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pg {
+  min-width: 30px;
+  height: 30px;
+  padding: 0 7px;
+  border-radius: var(--r-sm);
+  border: 1px solid transparent;
+  color: var(--ink-60);
+  font-size: 12.5px;
+  font-weight: 600;
+  font-family: var(--f-mono);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    background var(--t),
+    color var(--t),
+    border-color var(--t);
+}
+.pg:hover:not([disabled]):not(.on) {
+  background: var(--tint);
+  color: var(--ink);
+}
+.pg.on {
+  background: var(--slate);
+  border-color: var(--slate);
+  color: #fff;
+}
+.pg[disabled] {
+  opacity: 0.35;
+  pointer-events: none;
 }
 
 /* ============================================================
@@ -2563,10 +3220,21 @@ select.inp.sm {
     width: 100%;
     margin-left: 0;
   }
+  /* On a phone the bar keeps the glyphs and the one figure that changes; the
+     labels beside them are the first thing that can go. The date control keeps
+     its range name — it is a *setting*, and an unlabelled setting is a guess —
+     but drops the resolved dates. */
   .mark small,
   .usermenu-btn span,
   .syncpill .sl {
     display: none;
+  }
+  .syncpill {
+    height: 38px;
+  }
+  .hdr {
+    gap: 8px;
+    padding: 0 12px;
   }
   .methods {
     grid-template-columns: 1fr;

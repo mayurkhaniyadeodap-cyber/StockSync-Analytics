@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { Icon } from '../components/Icon';
+import { Pager } from '../components/Pager';
 import { Skeleton } from '../components/Skeleton';
 import { StatusBadge } from '../components/StatusBadge';
 import { Page } from '../components/shell/Page';
@@ -19,20 +20,26 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'failed', label: 'Failed' },
 ];
 
+/** Rows per request. The endpoint's own default, stated here so the pager and
+    the query cannot drift apart. */
+const PAGE_SIZE = 50;
+
 /** Design doc §8.8. */
 export function ImportHistoryPage() {
   const navigate = useNavigate();
 
   const [filter, setFilter] = useState<Filter>('all');
+  const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (which: Filter) => {
+  const load = useCallback(async (which: Filter, from: number) => {
     setPage(null);
     setError(null);
     try {
-      const query = which === 'all' ? '' : `?status=${which}`;
-      setPage(await api.get<HistoryPage>(`/imports${query}`));
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(from) });
+      if (which !== 'all') params.set('status', which);
+      setPage(await api.get<HistoryPage>(`/imports?${params.toString()}`));
     } catch (caught) {
       setError(
         caught instanceof StockSyncApiError
@@ -43,8 +50,16 @@ export function ImportHistoryPage() {
   }, []);
 
   useEffect(() => {
-    void load(filter);
-  }, [filter, load]);
+    void load(filter, offset);
+  }, [filter, load, offset]);
+
+  // A filter narrows the set, so page four of the old one is very likely past
+  // the end of the new one — and an empty table with a pager reading "page 4"
+  // looks like a bug rather than a filter.
+  const changeFilter = (next: Filter) => {
+    setOffset(0);
+    setFilter(next);
+  };
 
   return (
     <Page>
@@ -60,6 +75,9 @@ export function ImportHistoryPage() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="clock" size="s" />
+          </span>
           <h3>All imports</h3>
           <div className="r">
             <div className="seg">
@@ -67,7 +85,7 @@ export function ImportHistoryPage() {
                 <button
                   key={option.key}
                   className={option.key === filter ? 'on' : ''}
-                  onClick={() => setFilter(option.key)}
+                  onClick={() => changeFilter(option.key)}
                 >
                   {option.label}
                 </button>
@@ -81,7 +99,7 @@ export function ImportHistoryPage() {
             <div className="inline-err">
               <Icon name="warn" />
               <div>{error}</div>
-              <button className="btn sm" onClick={() => void load(filter)}>
+              <button className="btn sm" onClick={() => void load(filter, offset)}>
                 Retry
               </button>
             </div>
@@ -172,11 +190,13 @@ export function ImportHistoryPage() {
                 </tbody>
               </table>
             </div>
-            <div className="tbl-ft">
-              <span>
-                {n(page.total)} import{page.total === 1 ? '' : 's'}
-              </span>
-            </div>
+            <Pager
+              offset={page.offset}
+              limit={page.limit}
+              total={page.total}
+              onGo={setOffset}
+              unit={page.total === 1 ? 'import' : 'imports'}
+            />
           </>
         )}
       </div>

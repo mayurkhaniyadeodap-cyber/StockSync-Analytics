@@ -80,7 +80,14 @@ class SkuFactRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def facts(self, workspace_id: int, *, since: date, until: date) -> list[SkuFact]:
+    def facts(
+        self,
+        workspace_id: int,
+        *,
+        since: date,
+        until: date,
+        windowed_complaints: bool = True,
+    ) -> list[SkuFact]:
         """Every sheet SKU, with Shopify units for the window joined on.
 
         A left join: a SKU the store never sold still has a row, because the
@@ -111,7 +118,11 @@ class SkuFactRepository:
             .group_by(InventoryItem.id)
         ).all()
 
-        window = complaints_repository.read(self._db, workspace_id, since=since, until=until)
+        window = (
+            complaints_repository.read(self._db, workspace_id, since=since, until=until)
+            if windowed_complaints
+            else complaints_repository.whole_record()
+        )
 
         facts: list[SkuFact] = []
         for item, sold, revenue_paise in rows:
@@ -137,12 +148,25 @@ class SkuFactRepository:
             )
         return facts
 
-    def complaint_scope(self, workspace_id: int, *, since: date, until: date) -> ComplaintScope:
+    def complaint_scope(
+        self,
+        workspace_id: int,
+        *,
+        since: date,
+        until: date,
+        windowed_complaints: bool = True,
+    ) -> ComplaintScope:
         """Whether this workspace's complaint figures follow the range.
 
         For callers that want the note without building every fact.
         """
-        return complaints_repository.resolve(self._db, workspace_id, since=since, until=until).scope
+        return complaints_repository.resolve(
+            self._db,
+            workspace_id,
+            since=since,
+            until=until,
+            windowed=windowed_complaints,
+        ).scope
 
     def window_units(self, workspace_id: int, *, since: date, until: date) -> int:
         """Every unit the store sold in the window, matched to the sheet or not.

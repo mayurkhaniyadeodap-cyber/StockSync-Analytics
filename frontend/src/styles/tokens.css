@@ -1,66 +1,105 @@
 /* ============================================================
-   STOCKSYNC ANALYTICS — design tokens (design doc §1.3)
+   STOCKSYNC ANALYTICS — design tokens
 
-   Lifted verbatim from prototype/strata-prototype.html. Values here are the
-   contract: if a colour, radius or timing needs to change, it changes here and
-   nowhere else. No component may hard-code a hex value.
+   Values here are the contract: if a colour, radius or timing needs to change,
+   it changes here and nowhere else. No component may hard-code a hex value.
+
+   The token *names* are the prototype's and have not changed — `--slate` is
+   still "the primary brand colour", `--moss` still "success". Only their values
+   moved, which is what lets every one of the twelve pages adopt the SaaS
+   palette without a line of component code changing.
    ============================================================ */
 
 :root {
-  /* palette — light (doc §1.3) */
-  --ink: #23282b; /* primary text */
-  --slate: #3a5763; /* primary brand: buttons, active states, links */
-  --clay: #b5613f; /* single attention accent: the one primary CTA per screen */
-  --moss: #4c7a5b; /* success: matched, synced, in stock */
-  --amber: #b9862e; /* warning: low stock, needs review */
-  --rust: #a23b3b; /* danger: out of stock, failed sync, unmatched */
-  --fog: #f5f4f2; /* page background */
+  /* palette — light */
+  --ink: #0f172a; /* primary text */
+  --slate: #2563eb; /* primary brand: buttons, active states, links */
+  --clay: #1d4ed8; /* the one committing action per flow — a deeper blue */
+  --moss: #16a34a; /* success: synced, in stock, excellent */
+  --amber: #f59e0b; /* warning: low stock, needs attention */
+  --rust: #ef4444; /* danger: out of stock, failed sync, critical */
+  /* An older spelling of `--rust`, still reached for by a couple of call
+     sites. Defined here so it resolves rather than silently inheriting. */
+  --bad: #ef4444;
+  --fog: #f4f7fb; /* page background */
   --paper: #ffffff; /* card / panel surface */
-  --line: #ddd9d3; /* dividers, borders */
+  --line: #e3e9f2; /* dividers, borders */
 
   /* derived text opacities */
-  --ink-60: #23282b99;
-  --ink-45: #23282b73;
+  --ink-60: #475569;
+  --ink-45: #64748b;
+  /* Named separately because some call sites want "quiet body text" rather than
+     a share of the ink, and 60/45 are already spoken for. */
+  --ink-70: #334155;
 
-  /* the strata divider: tinted fills that sit under section headers */
-  --tint: #3a576314;
-  --tint-strong: #3a57631f;
-  --sub: #00000006;
+  /* tinted fills that sit under section headers and selected rows */
+  --tint: #2563eb0f;
+  --tint-strong: #2563eb1c;
+  --sub: #f8fafc; /* panel footers and table heads */
 
-  /* shadows exist only for overlays — never on cards (doc §5.2) */
-  --shadow: 0 1px 2px #23282b0d, 0 8px 24px #23282b0f;
+  /* Cards carry a hairline shadow now rather than sitting flat on the page.
+     `--shadow` stays the heavier one, for overlays only. */
+  --shadow-card: 0 1px 2px #0f172a0d;
+  --shadow: 0 4px 6px -1px #0f172a1a, 0 12px 28px -8px #0f172a24;
 
   /* shape & metrics */
-  --r: 6px; /* 6px everywhere — "ledger/instrument", not consumer-app soft */
+  --r: 10px; /* cards, panels, inputs */
+  --r-sm: 8px; /* buttons and other small controls */
+  --r-xs: 6px; /* chips, badges that are not pills */
   --hdr-h: 64px;
-  --side-w: 240px;
+  --side-w: 244px;
   --side-c: 72px;
 
   /* type: one geometric-humanist sans, one tabular mono for every number */
   --f-sans: 'Figtree', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
   --f-mono: 'JetBrains Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
 
-  /* motion: explains state changes only, 150–200ms (doc §1.4) */
+  /* motion: explains state changes only, 150–200ms */
   --t: 170ms cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* the navigation rail — dark blue in both themes.
+     Its own token set rather than the global palette: the working surface stays
+     light, and the rail stays a fixed landmark the eye finds without reading.
+     Nothing outside `.side` may use these. */
+  --nav-bg: #172a46;
+  --nav-bg-deep: #122138; /* the rail's own footer, one step back */
+  --nav-ink: #f1f5f9; /* active and hovered labels */
+  --nav-ink-60: #cbd5e1; /* resting labels */
+  --nav-ink-45: #8ea3bf; /* group headings, counts, the collapse control */
+  --nav-line: #ffffff1a;
+  --nav-tint: #ffffff12; /* hover fill */
+  --nav-accent: #2b7fff; /* the active pill */
 }
 
 [data-theme='dark'] {
-  --ink: #e9ecec;
-  --slate: #7fa2af;
-  --clay: #d98466;
-  --moss: #7fbe93;
-  --amber: #ddae5c;
-  --rust: #da6c6c;
-  --fog: #17191a;
-  --paper: #202324;
-  --line: #35383a;
+  --ink: #e8edf5;
+  --slate: #60a5fa;
+  --clay: #3b82f6;
+  --moss: #4ade80;
+  --amber: #fbbf24;
+  --rust: #f87171;
+  --bad: #f87171;
+  --fog: #0b1220;
+  --paper: #121c2e;
+  --line: #22304a;
 
-  --ink-60: #e9ecec99;
-  --ink-45: #e9ecec73;
+  --ink-60: #a8b7cd;
+  --ink-45: #7d8fa9;
+  --ink-70: #c2cee0;
 
-  --tint: #7fa2af1a;
-  --tint-strong: #7fa2af26;
-  --sub: #ffffff05;
+  --tint: #60a5fa1a;
+  --tint-strong: #60a5fa2b;
+  --sub: #16223d;
 
-  --shadow: 0 1px 2px #0006, 0 12px 32px #0009;
+  --shadow-card: 0 1px 2px #0006;
+  --shadow: 0 4px 6px -1px #0008, 0 12px 28px -8px #000a;
+
+  --nav-bg: #0e192b;
+  --nav-bg-deep: #0a121f;
+  --nav-ink: #e8edf5;
+  --nav-ink-60: #b9c6d8;
+  --nav-ink-45: #7d8fa9;
+  --nav-line: #ffffff14;
+  --nav-tint: #ffffff0e;
+  --nav-accent: #3b82f6;
 }

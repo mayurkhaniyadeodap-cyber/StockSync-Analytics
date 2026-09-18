@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import secrets
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -31,12 +32,17 @@ TEST_EMAIL = "Admin@Deodap.in"
 
 
 @pytest.fixture
-def settings() -> Settings:
+def settings(tmp_path: Path) -> Settings:
     return Settings(
         env="test",
         debug=True,
         database_url="sqlite+pysqlite:///:memory:",
         log_level="WARNING",
+        # Any test that reaches a mail-sending endpoint without stubbing the
+        # mailer writes the undeliverable message somewhere. Left at its default
+        # that somewhere is the repo's own storage/outbox, so a full run leaves
+        # real reset links lying in the working tree.
+        mail_outbox_dir=tmp_path / "outbox",
     )
 
 
@@ -120,6 +126,11 @@ def api(tmp_path, monkeypatch: pytest.MonkeyPatch) -> Iterator[TestClient]:
     monkeypatch.setenv("STOCKSYNC_RATE_LIMIT_MAX_EVENTS", "1000")
     monkeypatch.setenv("STOCKSYNC_EXPORT_DIR", str(tmp_path / "exports"))
     monkeypatch.setenv("STOCKSYNC_BACKUP_DIR", str(tmp_path / "backups"))
+    # So is undeliverable mail. Any test that hits /auth/forgot-password without
+    # stubbing the mailer spools the message, and the default outbox is inside
+    # the working copy — which is how a real reset link ended up committed-ready
+    # in storage/ after a full run.
+    monkeypatch.setenv("STOCKSYNC_MAIL_OUTBOX_DIR", str(tmp_path / "outbox"))
     monkeypatch.setenv("STOCKSYNC_JWT_SECRET", "t" * 48)
     monkeypatch.setenv(
         "STOCKSYNC_ENCRYPTION_KEY",

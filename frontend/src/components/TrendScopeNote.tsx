@@ -12,11 +12,16 @@
  * pasted into three pages, so the two explanations cannot drift apart.
  */
 
+import { Icon } from './Icon';
+
 export function TrendScopeNote() {
   return (
     <div className="trend-scope">
-      This trend shows <b>all Shopify sales</b> from your store. The Shopify Sales figure above
-      counts only SKUs imported into StockSync Analytics.
+      <Icon name="warn" size="s" />
+      <span>
+        This trend shows <b>all Shopify sales</b> from your store. The Shopify Sales figure
+        above counts only SKUs imported into StockSync Analytics.
+      </span>
     </div>
   );
 }

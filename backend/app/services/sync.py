@@ -30,6 +30,7 @@ instead of restarting.
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -39,7 +40,6 @@ from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.config import Settings
-from app.core import crypto
 from app.core.errors import AppError
 from app.db.session import get_session_factory
 from app.models import (
@@ -111,6 +111,12 @@ class StageOutcome:
     ok: bool = True
     cursor: str | None = None
     error: AppError | None = None
+    #: Stopped on its own terms, having run out of time rather than gone wrong.
+    #: `ok` stays True — nothing failed — but the run is not finished either, so
+    #: the outcome is recorded as partial and a continuation carries on from
+    #: `cursor`. Distinguishing this from a failure is what keeps a bounded sync
+    #: out of the error path: there is nothing for the user to fix.
+    paused: bool = False
 
 
 def start_sync(
@@ -375,13 +381,30 @@ def run_sync_job(
             _finish(db, run, result="failed", code="shopify_not_connected", detail="No connection.")
             return
 
+        # Through the resolver rather than decrypting the row here, so the sync,
+        # the freshness check and the Connection page cannot come to different
+        # conclusions about which store this workspace uses. The row is still
+        # read above because synced rows need its id and its lookback window;
+        # what comes from the resolver is the credential.
         try:
-            token = crypto.decrypt(settings, connection.access_token_encrypted)
+            credential = shopify_service.resolve_credential(db, settings, workspace_id=workspace_id)
         except AppError as exc:
             _finish(db, run, result="failed", code=exc.code, detail=exc.message)
             return
 
-        client = ShopifyClient(settings=settings, shop_domain=connection.shop_domain, token=token)
+        if credential is None or not credential.usable:
+            _finish(
+                db,
+                run,
+                result="failed",
+                code="shopify_not_connected",
+                detail="This store is disconnected. Reconnect it to sync again.",
+            )
+            return
+
+        client = ShopifyClient(
+            settings=settings, shop_domain=credential.shop_domain, token=credential.token
+        )
 
         run.status = "running"
         db.commit()
@@ -398,9 +421,20 @@ def run_sync_job(
             ),
         )
 
+        # Where the walk stood before this run touched it. A continuation is
+        # only worth queueing if the cursor moved; otherwise the chain would be
+        # a loop that fetches nothing.
+        cursor_at_start = run.cursor_orders
+
         if fetch:
             orders = _sync_orders(
-                db, client, run, connection.id, workspace_id, connection.order_lookback_days
+                db,
+                client,
+                run,
+                connection.id,
+                workspace_id,
+                connection.order_lookback_days,
+                settings.sync_max_seconds,
             )
         else:
             # Recompute-only retry. The orders this run reports are the ones
@@ -457,6 +491,59 @@ def run_sync_job(
         except (ShopifyError, SQLAlchemyError):
             log.info("could not record store freshness after sync %s", run.id)
 
+        _continue_if_paused(db, settings, run=run, orders=orders, cursor_at_start=cursor_at_start)
+
+
+def _continue_if_paused(
+    db: Session,
+    settings: Settings,
+    *,
+    run: SyncRun,
+    orders: StageOutcome,
+    cursor_at_start: str | None,
+) -> None:
+    """Queue the next chunk of a sync that stopped on its time limit.
+
+    Without this a bounded sync would never finish on its own: each run would
+    stop politely and wait for somebody to press Sync again, which is a worse
+    experience than the unbounded run it replaced.
+
+    **Why this terminates.** Four independent reasons, because an automatic
+    chain that does not stop is worse than a slow one:
+
+    1. The window is finite — ``order_lookback_days`` of orders.
+    2. A chunk only continues if the cursor *moved*, so a chain that stops
+       making progress stops entirely.
+    3. When Shopify offers no next page the stage is not paused, so the run
+       succeeds and the chain ends. That is the ordinary exit.
+    4. ``paginate`` refuses a cursor it has already walked, so a cycle on
+       Shopify's side ends the walk rather than feeding the chain forever.
+
+    Failures never chain. A revoked scope or an expired token would otherwise
+    retry itself in a loop against a credential nobody has fixed yet.
+    """
+    if not orders.paused:
+        return
+
+    if run.cursor_orders is None or run.cursor_orders == cursor_at_start:
+        log.info("sync run=%s paused without advancing; not continuing", run.id)
+        return
+
+    try:
+        nxt = start_sync(
+            db,
+            settings,
+            workspace_id=run.workspace_id,
+            user_id=run.triggered_by,
+            trigger="continuation",
+        )
+        log.info("sync run=%s paused; queued run=%s to continue", run.id, nxt.id)
+    except (SyncAlreadyRunningError, NotConnectedError, SQLAlchemyError):
+        # Someone started their own sync in the meantime, or the store was
+        # disconnected. Either way the cursor is committed, so the next sync —
+        # theirs or the one after an import — resumes from it.
+        log.info("sync run=%s paused but a continuation could not start", run.id, exc_info=True)
+
 
 # ---------------------------------------------------------------------------
 # stages
@@ -470,6 +557,7 @@ def _sync_orders(
     connection_id: int,
     workspace_id: int,
     lookback_days: int,
+    max_seconds: int,
 ) -> StageOutcome:
     run.stage = "orders"
     db.commit()
@@ -487,12 +575,29 @@ def _sync_orders(
     #: The same, for line items — `line_items_synced` inflated identically.
     counted_lines: set[int] = set()
 
+    #: Checked after each page commits, so a run always stops on a boundary it
+    #: has already made durable. Monotonic because a clock adjustment mid-sync
+    #: must not extend or truncate the budget.
+    deadline = time.monotonic() + max_seconds
+
     try:
         for page in client.orders(since=since, start_cursor=run.cursor_orders):
             _write_order_page(db, page, connection_id, workspace_id, run, counted, counted_lines)
             run.orders_pct = _percent(len(counted), total)
             run.cursor_orders = page.next_cursor
             db.commit()
+
+            # Out of time, and there is more to fetch. Stop here rather than at
+            # whatever arbitrary point an interruption would have chosen: the
+            # cursor is committed, so the continuation resumes exactly here.
+            if page.next_cursor and time.monotonic() >= deadline:
+                log.info(
+                    "sync run=%s paused after %ss with %s orders; resuming from its cursor",
+                    run.id,
+                    max_seconds,
+                    len(counted),
+                )
+                return StageOutcome(ok=True, cursor=run.cursor_orders, paused=True)
     except ShopifyError as exc:
         log.warning("order sync stopped: %s", exc.code)
         return StageOutcome(ok=False, cursor=run.cursor_orders, error=exc)
@@ -740,6 +845,22 @@ def _record_outcome(
     failures = [s for s in (orders, rollup) if not s.ok]
 
     if not failures:
+        if orders.paused:
+            # Everything asked for landed; there is simply more to fetch. Recorded
+            # as partial because that is what the amber badge and the resume
+            # cursor already mean, with a code of its own so the Sync History row
+            # reads as "carrying on" rather than as something that went wrong.
+            _finish(
+                db,
+                run,
+                result="partial",
+                code="sync_paused",
+                detail=(
+                    "Paused after its time limit with the orders so far saved. "
+                    "A continuation picks up from here automatically."
+                ),
+            )
+            return
         _finish(db, run, result="success")
         return
 
@@ -940,7 +1061,12 @@ def check_freshness(db: Session, settings: Settings, *, workspace_id: int) -> Fr
     synced_through = orders.latest_processed_at(workspace_id)
 
     credential = shopify_service.resolve_credential(db, settings, workspace_id=workspace_id)
-    if credential is None:
+    # `usable` and not merely "not None": a disconnected row resolves to itself
+    # with no token, and asking Shopify anything with it is not possible. What
+    # this must never do is answer for a *different* store, which is what
+    # falling through to `.env` here used to mean — the page would report a gap
+    # measured against a store the sync had never touched.
+    if credential is None or not credential.usable:
         return freshness_from(connection, synced_through)
 
     client = ShopifyClient(

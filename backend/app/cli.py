@@ -6,6 +6,7 @@
     python -m app.cli backup                                   # snapshot + prune
     python -m app.cli check-inventory                          # report inconsistencies
     python -m app.cli check-inventory --repair                 # and fix them
+    python -m app.cli send-test-email --to you@example.com     # prove mail works
 
 There is no self-registration: this is an internal tool where accounts are
 issued.
@@ -48,6 +49,7 @@ from app.core.security import hash_password
 from app.db.session import get_session_factory
 from app.models import InventoryItem, User, UserPreferences, Workspace, normalize_email
 from app.services import backup as backup_service
+from app.services import mailer
 
 DEFAULT_WORKSPACE_NAME = "Deodap Retail"
 DEFAULT_WORKSPACE_SLUG = "deodap"
@@ -277,6 +279,63 @@ def check_inventory(repair: bool = False) -> int:
         return 0
 
 
+def send_test_email(to: str) -> int:
+    """Send one message and say exactly what happened.
+
+    The reason this exists: no endpoint that sends mail may report whether it
+    arrived. `/auth/forgot-password` answers identically for an address that
+    exists and one that does not, and `/auth/change-email` must not become a way
+    to probe a relay — so neither can tell you your SMTP settings are wrong.
+    Without a command like this, the only signal that mail is misconfigured is a
+    user saying a link never came, which is the situation this was written for.
+
+    Prints the configuration it used, minus the password, then the outcome.
+    Exits non-zero when nothing left the machine, so a smoke test can check it.
+    """
+    settings = get_settings()
+
+    print(f"host       : {settings.smtp_host or '(unset)'}")
+    print(f"port       : {settings.smtp_port}")
+    print(f"starttls   : {settings.smtp_starttls}")
+    print(f"username   : {settings.smtp_username or '(unset)'}")
+    print(f"password   : {'set' if settings.smtp_password else '(unset)'}")
+    print(f"from       : {settings.resolved_smtp_from or '(unset)'}")
+    print(f"to         : {to}")
+    print(f"app_base_url: {settings.app_base_url}")
+    print()
+
+    if not settings.email_configured:
+        print(
+            "STOCKSYNC_SMTP_HOST is not set, so nothing can be delivered.\n"
+            f"The message would be written to {settings.mail_outbox_dir} instead.\n"
+            "Set the STOCKSYNC_SMTP_* variables in .env and run this again.",
+            file=sys.stderr,
+        )
+        return 1
+
+    sent = mailer.send(
+        settings,
+        to=to,
+        subject="StockSync Analytics test message",
+        body=(
+            "This is a test message from StockSync Analytics.\n\n"
+            "If you are reading it, outbound mail works and password-reset and\n"
+            "email-verification links will reach their recipients.\n"
+        ),
+    )
+
+    if not sent:
+        print(
+            "The message was NOT sent. The SMTP error is in the log line above "
+            "(run with STOCKSYNC_LOG_LEVEL=DEBUG for more).",
+            file=sys.stderr,
+        )
+        return 1
+
+    print(f"Sent. Check {to} — including its spam folder.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.cli", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -316,10 +375,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="set quantity_on_hand from the sheet's Total Qty for the rows listed",
     )
 
+    mail_parser = sub.add_parser(
+        "send-test-email",
+        help="send one message through the configured relay and report the result",
+    )
+    mail_parser.add_argument("--to", required=True, metavar="ADDRESS")
+
     args = parser.parse_args(argv)
 
     if args.command == "backup":
         return backup()
+
+    if args.command == "send-test-email":
+        return send_test_email(args.to)
 
     if args.command == "check-inventory":
         return check_inventory(args.repair)

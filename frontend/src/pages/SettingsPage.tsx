@@ -14,6 +14,7 @@ import { Page } from '../components/shell/Page';
 import { PageHeader } from '../components/shell/PageHeader';
 import { DisplaySection } from './settings/DisplaySection';
 import { ImportsSection, SyncsSection } from './settings/HistorySections';
+import { PasswordSection } from './settings/CredentialSections';
 import { ProfileSection } from './settings/ProfileSection';
 import { SheetsSection } from './settings/SheetsSection';
 import { ShopifySection } from './settings/ShopifySection';
@@ -29,10 +30,32 @@ const SECTIONS = [
 
 type SectionKey = (typeof SECTIONS)[number]['key'];
 
+/**
+ * Profile, then the panel that changes your password.
+ *
+ * Two panels rather than four more fields on one: name and time zone save
+ * together on a single button and are harmless to abandon mid-edit, while a
+ * password change needs the current password and ends every other session.
+ * Folding them behind one "Save changes" would make a password change
+ * something you could do by accident while fixing a typo in your name.
+ *
+ * A third panel here offered to change the sign-in address. It was removed
+ * from the page — the endpoints behind it are untouched, so it is a matter of
+ * rendering `EmailSection` again to bring it back.
+ */
+function AccountPanels() {
+  return (
+    <>
+      <ProfileSection />
+      <PasswordSection />
+    </>
+  );
+}
+
 const PANELS: Record<SectionKey, () => ReactElement | null> = {
   shopify: ShopifySection,
   sheets: SheetsSection,
-  profile: ProfileSection,
+  profile: AccountPanels,
   prefs: DisplaySection,
   imports: ImportsSection,
   syncs: SyncsSection,

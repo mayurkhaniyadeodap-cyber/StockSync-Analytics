@@ -149,7 +149,13 @@ def _threshold(db: Session, workspace_id: int) -> int:
     return int(value or 10)
 
 
-def kpis(db: Session, *, workspace_id: int, days: int = DEFAULT_RANGE) -> Kpis:
+def kpis(
+    db: Session,
+    *,
+    workspace_id: int,
+    days: int = DEFAULT_RANGE,
+    windowed_complaints: bool = True,
+) -> Kpis:
     """The six cards. Sheet figures and Shopify sales, matched by SKU."""
     since, until = workspace_window(db, workspace_id, days)
     threshold = _threshold(db, workspace_id)
@@ -180,7 +186,9 @@ def kpis(db: Session, *, workspace_id: int, days: int = DEFAULT_RANGE) -> Kpis:
     # Complaints follow the range for the SKUs imported with dates on them and
     # are the sheet's totals for the rest — one rule, in one place, shared with
     # the table below the card. `scope` is what tells the page which it is.
-    complaints = complaints_repository.resolve(db, workspace_id, since=since, until=until)
+    complaints = complaints_repository.resolve(
+        db, workspace_id, since=since, until=until, windowed=windowed_complaints
+    )
 
     return Kpis(
         total_skus=int(sheet[0] or 0),
@@ -255,6 +263,7 @@ def sku_table(
     search: str | None = None,
     limit: int = 50,
     offset: int = 0,
+    windowed_complaints: bool = True,
 ) -> tuple[list[SkuRow], int, ComplaintScope]:
     """The main table: every sheet SKU with its Shopify sales beside it.
 
@@ -312,7 +321,9 @@ def sku_table(
     # imported with complaint dates reports the window, one without reports the
     # sheet's totals. Reading it here rather than off `item` is what keeps this
     # table and SKU Performance showing one number per SKU.
-    resolved = complaints_repository.resolve(db, workspace_id, since=since, until=until)
+    resolved = complaints_repository.resolve(
+        db, workspace_id, since=since, until=until, windowed=windowed_complaints
+    )
 
     result: list[SkuRow] = []
     for item, sold in rows:

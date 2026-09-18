@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 
+import { RangeProvider } from '../../contexts/RangeContext';
 import { ShopifyStatusProvider } from '../../contexts/ShopifyStatusContext';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
@@ -60,19 +61,22 @@ export function AppShell() {
     // Mounted at the frame so the header and the dashboard read one shared
     // answer about Shopify rather than each fetching, and possibly disagreeing.
     <ShopifyStatusProvider>
-      <div className="app on">
-        <Header onOpenNav={() => setNavOpen(true)} />
+      {/* The header carries the date control, so the range it sets has to live
+          above both the header and the pages that read it. */}
+      <RangeProvider>
+        <div className="app on">
+          <Header onOpenNav={() => setNavOpen(true)} />
 
-        <div className="body">
-          <Sidebar
-            collapsed={collapsed}
-            open={navOpen}
-            onToggleCollapsed={() => setCollapsed((c) => !c)}
-            onNavigate={closeNav}
-          />
+          <div className="body">
+            <Sidebar
+              collapsed={collapsed}
+              open={navOpen}
+              onToggleCollapsed={() => setCollapsed((c) => !c)}
+              onNavigate={closeNav}
+            />
 
-          <main className="main">
-            {/* Inside the frame, so one broken page leaves the header and the
+            <main className="main">
+              {/* Inside the frame, so one broken page leaves the header and the
                 sidebar standing and the user can navigate out of it — the
                 outer boundary in App would replace the whole application.
 
@@ -80,18 +84,19 @@ export function AppShell() {
                 without this, one page throwing would show its fallback for
                 every route afterwards, since the same instance stays mounted
                 across navigations. */}
-            <ErrorBoundary key={location.pathname} scope="This page" home="/dashboard">
-              <Outlet />
-            </ErrorBoundary>
-          </main>
-        </div>
+              <ErrorBoundary key={location.pathname} scope="This page" home="/dashboard">
+                <Outlet />
+              </ErrorBoundary>
+            </main>
+          </div>
 
-        <div
-          className={`scrim${navOpen ? ' on' : ''}`}
-          onClick={closeNav}
-          aria-hidden={!navOpen}
-        />
-      </div>
+          <div
+            className={`scrim${navOpen ? ' on' : ''}`}
+            onClick={closeNav}
+            aria-hidden={!navOpen}
+          />
+        </div>
+      </RangeProvider>
     </ShopifyStatusProvider>
   );
 }

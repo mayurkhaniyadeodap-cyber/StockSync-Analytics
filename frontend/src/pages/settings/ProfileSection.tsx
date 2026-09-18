@@ -2,7 +2,9 @@
  * Settings → Profile.
  *
  * Name and time zone are yours to change. Email is the login identity, so
- * changing it is an authentication change rather than a profile edit; role is
+ * changing it is an authentication change rather than a profile edit and lives
+ * in its own panel below — it needs the current password and a link sent to the
+ * new address, neither of which belongs behind this panel's Save button; role is
  * a job title the workspace admin sets. Both are shown — you should be able to
  * see what the system thinks you are — and neither is writable here, which the
  * fields say rather than leaving you to discover by trying.
@@ -71,6 +73,9 @@ export function ProfileSection() {
   return (
     <div className="panel">
       <div className="p-hd">
+        <span className="p-chip" aria-hidden="true">
+          <Icon name="user" size="s" />
+        </span>
         <h3>Profile</h3>
         <div className="r">
           <span className="avatar">{user.initials}</span>
@@ -95,9 +100,7 @@ export function ProfileSection() {
         <div className="field">
           <label htmlFor="profile-email">Email</label>
           <input id="profile-email" className="inp" value={user.email} disabled readOnly />
-          <div className="help">
-            This is how you sign in. Your workspace admin can change it.
-          </div>
+          <div className="help">This is how you sign in.</div>
         </div>
 
         <div className="field">

@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from 'react';
 
+import { Icon } from '../../components/Icon';
 import { useAuth } from '../../hooks/useAuth';
 import { useTheme } from '../../hooks/useTheme';
 import { useToast } from '../../hooks/useToast';
@@ -52,6 +53,9 @@ export function DisplaySection() {
   return (
     <div className="panel">
       <div className="p-hd">
+        <span className="p-chip" aria-hidden="true">
+          <Icon name="sun" size="s" />
+        </span>
         <h3>Display</h3>
       </div>
       <div className="p-bd">

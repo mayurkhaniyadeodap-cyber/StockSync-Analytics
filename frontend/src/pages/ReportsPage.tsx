@@ -349,6 +349,9 @@ export function ReportsPage() {
       {history && history.length > 0 ? (
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip" aria-hidden="true">
+              <Icon name="file" size="s" />
+            </span>
             <h3>Export centre</h3>
             <span className="hint">Reports stay here until you delete them</span>
           </div>

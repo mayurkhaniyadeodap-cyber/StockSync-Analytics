@@ -266,6 +266,21 @@ function syncStatus(sync: UseSync): { label: string; tone: string; failed: boole
   return { label: 'Not run yet', tone: 'slate', failed: false };
 }
 
+/**
+ * What went wrong with a saved connection, and what fixes it.
+ *
+ * Three states, three different remedies — regenerating a token does not grant
+ * a scope, and neither is what a deliberate disconnect needs.
+ */
+const RECONNECT: Record<string, string> = {
+  token_expired:
+    'Shopify rejected this store’s token. Generate a new Admin API access token and enter it below — the store URL is already filled in.',
+  missing_scopes:
+    'This store’s token is missing read_orders, so sales cannot be pulled. Grant the scope in the Shopify admin and enter the regenerated token below.',
+  disconnected:
+    'This store was disconnected here, so its token was deleted. Enter a token below to reconnect it.',
+};
+
 function StoreCard({
   connection,
   fromEnv,
@@ -321,6 +336,9 @@ function StoreCard({
   return (
     <div className="panel">
       <div className="p-hd">
+        <span className="p-chip moss" aria-hidden="true">
+          <Icon name="plug" size="s" />
+        </span>
         <h3>Store</h3>
         <div className="r">
           {fromEnv && <span className="badge">From .env</span>}
@@ -469,8 +487,37 @@ function ConnectForm({
         </div>
       )}
 
+      {/*
+        A saved store that has stopped working.
+
+        This was unreachable until the credential fallback was tightened: the
+        server answered with the `.env` store instead, so an expired connection
+        was replaced on screen by a healthy-looking one for a different shop and
+        the page showed a green badge while the sync failed. Now the real row is
+        reported, and this is the first place a reader learns their connection
+        needs attention — so it names the store, says what went wrong, and the
+        form beneath it is already filled with that store's own domain.
+      */}
+      {previous && previous.status !== 'connected' && (
+        <div className="panel alert-rust">
+          <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="warn" size="s" />
+            </span>
+            <h3>Reconnect {previous.shop_domain}</h3>
+            <div className="r">
+              <ConnectionBadge status={previous.status} />
+            </div>
+            <span className="hint">{RECONNECT[previous.status] ?? RECONNECT.disconnected}</span>
+          </div>
+        </div>
+      )}
+
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="plug" size="s" />
+          </span>
           <h3>Connect a store</h3>
           <span className="hint">The token is stored encrypted and never shown again</span>
         </div>
@@ -595,6 +642,9 @@ function RecentSyncs({ refreshKey }: { refreshKey: number }) {
   return (
     <div className="panel">
       <div className="p-hd">
+        <span className="p-chip" aria-hidden="true">
+          <Icon name="sync" size="s" />
+        </span>
         <h3>Recent syncs</h3>
         <div className="r">
           <button className="btn sm" onClick={() => navigate('/sync-history')}>

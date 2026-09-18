@@ -12,6 +12,7 @@
  * disagree with the Sales or Complaint pages.
  */
 
+import { Icon } from '../../components/Icon';
 import { Skeleton } from '../../components/Skeleton';
 import { n } from '../../lib/format';
 import { AnalyticsFrame } from './AnalyticsFrame';
@@ -87,6 +88,9 @@ export function InventoryPage() {
       {insights && (restock || overstocked) ? (
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip moss" aria-hidden="true">
+              <Icon name="check" size="s" />
+            </span>
             <h3>Recommendations</h3>
             <span className="hint">The single most urgent SKU in each direction</span>
           </div>
@@ -106,6 +110,9 @@ export function InventoryPage() {
       <div className="grid2">
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip amber" aria-hidden="true">
+              <Icon name="box" size="s" />
+            </span>
             <h3>High stock, low sales</h3>
             {inventory ? <span className="hint">{cut(true)}</span> : null}
           </div>
@@ -127,6 +134,9 @@ export function InventoryPage() {
 
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="box" size="s" />
+            </span>
             <h3>Low stock, high sales</h3>
             {inventory ? <span className="hint">{cut(false)}</span> : null}
           </div>
@@ -150,6 +160,9 @@ export function InventoryPage() {
       <div className="grid2">
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip clay" aria-hidden="true">
+              <Icon name="x" size="s" />
+            </span>
             <h3>Zero sales SKUs</h3>
             {inventory && inventory.zero_sales_total > inventory.zero_sales.length ? (
               <span className="hint">
@@ -174,6 +187,9 @@ export function InventoryPage() {
 
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="warn" size="s" />
+            </span>
             <h3>Highest complaint SKUs</h3>
             <span className="hint">By total complaints</span>
           </div>

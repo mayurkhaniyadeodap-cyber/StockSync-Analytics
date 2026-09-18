@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 
 from app import __version__
@@ -17,8 +18,10 @@ from app.core.errors import register_exception_handlers
 from app.core.headers import SecurityHeadersMiddleware
 from app.core.logging import configure_logging
 from app.db.session import get_session_factory, ping_database
+from app.models import ShopifyConnection
 from app.repositories.reports import ReportRepository
 from app.services import report_store
+from app.services import shopify as shopify_service
 from app.services.reports import reclaim_interrupted as reclaim_interrupted_reports
 from app.services.sync import reclaim_interrupted_runs
 from app.workers import runner
@@ -46,13 +49,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # configured by a file nobody remembered editing is a confusing hour.
     if settings.env_shopify_credential_active:
         log.info(
-            "shopify: using the .env credential for %s (a stored connection overrides it)",
+            "shopify: .env names %s — used only by a workspace that has never "
+            "connected a store; a stored connection is authoritative once it exists",
             settings.shopify_store_url,
         )
+        _warn_on_shop_domain_mismatch(settings)
     elif settings.has_env_shopify_credential:
         log.warning(
             "shopify: SHOPIFY_ADMIN_API_TOKEN is set but ignored in production — "
             "connect the store through the app so the token is encrypted at rest"
+        )
+
+    # Say whether mail can leave the machine. Without this, an unconfigured
+    # relay is only discovered by the person waiting for a link that never
+    # arrives — and the endpoint that sends it cannot say so, because reporting
+    # a delivery failure to the caller is what leaks whether an address exists.
+    if settings.email_configured:
+        log.info(
+            "email: %s:%s (starttls=%s, from=%s)",
+            settings.smtp_host,
+            settings.smtp_port,
+            settings.smtp_starttls,
+            settings.resolved_smtp_from or "(unset — the relay may reject this)",
+        )
+    else:
+        log.warning(
+            "email: STOCKSYNC_SMTP_HOST is unset — password-reset and email-verification "
+            "links will NOT be delivered; each message is written to %s instead",
+            settings.mail_outbox_dir,
         )
 
     # Jobs run inline under test so a test never races a worker thread.
@@ -80,6 +104,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # with no worker behind it.
     runner.shutdown(wait=True)
     log.info("StockSync Analytics shutting down")
+
+
+def _warn_on_shop_domain_mismatch(settings: Settings) -> None:
+    """Say so when `.env` names a different store from the one on record.
+
+    Harmless now — a stored row is authoritative, so the `.env` pair is never
+    reached for a workspace that has one — but silence here is what made the
+    old fallback so hard to see. A developer whose figures looked wrong had no
+    way to learn that the file named a different shop from the row, because
+    nothing ever compared them. Three lines and a warning is cheap next to that.
+    """
+    stored: set[str] = set()
+    try:
+        with get_session_factory()() as db:
+            stored = {
+                domain for domain in db.scalars(select(ShopifyConnection.shop_domain)) if domain
+            }
+    except SQLAlchemyError:
+        # A database that cannot be read at start-up is already reported by the
+        # health probe above; it is not this check's job to fail the boot.
+        return
+
+    if not stored:
+        return
+
+    env_domain = shopify_service.normalize_shop_domain(settings.shopify_store_url)
+    if env_domain and env_domain not in stored:
+        log.warning(
+            "shopify: .env names %s but the stored connection(s) use %s — the stored "
+            "one is used and .env is ignored for those workspaces",
+            env_domain,
+            ", ".join(sorted(stored)),
+        )
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:

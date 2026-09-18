@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { Navigate, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 
+import { AuthAside } from '../components/AuthAside';
 import { Icon } from '../components/Icon';
 import { useAuth } from '../hooks/useAuth';
 import { StockSyncApiError } from '../lib/api';
@@ -12,10 +13,18 @@ const EMAIL_PATTERN = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const FADE_MS = 180;
 
 /**
- * Design doc §6.
+ * Sign in — a split screen.
  *
- * Deliberately calm: a centred single card, no marketing imagery, because this
- * is an internal operational tool rather than a consumer sign-up funnel.
+ * The left panel is the product saying what it is; the right is the form. It
+ * replaced a centred card, and the reason is the empty half of a 1440px screen
+ * the card left behind: this is the only page in the application that is mostly
+ * nothing, and the space was doing no work.
+ *
+ * **The left panel carries no marketing.** The three figures on it are what the
+ * product actually does — SKUs reconciled against Shopify sales — not claims
+ * about it. Below 900px it is gone entirely and the form is the page, because a
+ * hero image above a login form on a phone is one screen of scrolling before
+ * anything useful.
  */
 export function LoginPage() {
   const { status, login } = useAuth();
@@ -72,24 +81,13 @@ export function LoginPage() {
 
   return (
     <div id="login" className={leaving ? 'gone' : undefined}>
-      <div>
-        <div className="login-card">
-          {/* The strata motif: four stacked layers, the product's core visual idea. */}
-          <div className="login-strata">
-            <i style={{ background: 'var(--slate)' }} />
-            <i style={{ background: 'var(--moss)' }} />
-            <i style={{ background: 'var(--amber)' }} />
-            <i style={{ background: 'var(--clay)' }} />
-          </div>
+      <AuthAside />
 
-          <form className="login-bd" onSubmit={(e) => void handleSubmit(e)} noValidate>
-            <div className="login-mark">
-              <Icon name="layers" size="l" style={{ color: 'var(--slate)' }} />
-              <div>
-                <b style={{ fontSize: 19, letterSpacing: '.02em' }}>StockSync Analytics</b>
-              </div>
-            </div>
-            <p className="login-sub">Inventory &amp; Shopify sales reconciliation</p>
+      <div className="auth-main">
+        <div className="auth-card">
+          <form onSubmit={(e) => void handleSubmit(e)} noValidate>
+            <h1 className="auth-h1">Sign in</h1>
+            <p className="auth-sub">Access your inventory and sales analytics</p>
 
             {banner && (
               <div className="banner err" role="alert">
@@ -126,7 +124,15 @@ export function LoginPage() {
             </div>
 
             <div className="field">
-              <label htmlFor="login-password">Password</label>
+              <div className="field-top">
+                <label htmlFor="login-password">Password</label>
+                {/* Beside the label rather than under the field: under it, it
+                    sat between the password and the button and was read as part
+                    of the submit action. */}
+                <Link className="auth-link" to="/forgot-password">
+                  Forgot password?
+                </Link>
+              </div>
               <div className="inp-wrap">
                 <input
                   id="login-password"
@@ -163,8 +169,8 @@ export function LoginPage() {
               Keep me signed in
             </label>
 
-            {/* Height comes from .login-bd .btn.blk, not an inline style, so it
-                stays in step with the field height next to it. */}
+            {/* Height comes from .auth-card .btn.blk, not an inline style, so
+                it stays in step with the field height next to it. */}
             <button className="btn pri blk" type="submit" disabled={submitting}>
               {submitting ? (
                 <>
@@ -179,10 +185,6 @@ export function LoginPage() {
               )}
             </button>
           </form>
-
-          <div className="login-foot">
-            <span>StockSync Analytics · Deodap</span>
-          </div>
         </div>
       </div>
     </div>

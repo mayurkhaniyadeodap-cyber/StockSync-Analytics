@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useState } from 'react';
 
 import { Icon } from '../components/Icon';
+import { Pager } from '../components/Pager';
 import { Skeleton } from '../components/Skeleton';
 import { SyncResultBadge } from '../components/StatusBadge';
 import { SyncStepsToggle } from '../components/SyncSteps';
@@ -23,23 +24,33 @@ const FILTERS: { key: Filter; label: string }[] = [
 const TRIGGERS: Record<string, string> = {
   manual: 'Manual',
   scheduled: 'Scheduled',
+  // A sync that stopped on its time limit queues the next chunk itself. Named
+  // so a run of these reads as one long sync in pieces rather than as the app
+  // syncing over and over for no reason.
+  continuation: 'Continued',
 };
+
+/** Rows per request. The endpoint's own default, stated here so the pager and
+    the query cannot drift apart. */
+const PAGE_SIZE = 50;
 
 /** Design doc §9.1 — every pull from Shopify, with what came back. */
 export function SyncHistoryPage() {
   const [filter, setFilter] = useState<Filter>('all');
+  const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<HistoryPage | null>(null);
   const [error, setError] = useState<string | null>(null);
   // The shell's sync, so this page, the header pill and the dashboard all
   // watch one run rather than three pollers of the same endpoint.
   const { sync } = useShopifyStatus();
 
-  const load = useCallback(async (which: Filter) => {
+  const load = useCallback(async (which: Filter, from: number) => {
     setPage(null);
     setError(null);
     try {
-      const query = which === 'all' ? '' : `?result=${which}`;
-      setPage(await api.get<HistoryPage>(`/shopify/syncs${query}`));
+      const params = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(from) });
+      if (which !== 'all') params.set('result', which);
+      setPage(await api.get<HistoryPage>(`/shopify/syncs?${params.toString()}`));
     } catch (caught) {
       setError(
         caught instanceof StockSyncApiError
@@ -50,10 +61,18 @@ export function SyncHistoryPage() {
   }, []);
 
   useEffect(() => {
-    void load(filter);
+    void load(filter, offset);
     // completedAt changes when a sync finishes, so the table refreshes without
     // the user reloading the page.
-  }, [filter, load, sync.completedAt]);
+  }, [filter, load, offset, sync.completedAt]);
+
+  // A filter narrows the set, so page four of the old one is very likely past
+  // the end of the new one — and an empty table with a pager reading "page 4"
+  // looks like a bug rather than a filter.
+  const changeFilter = (next: Filter) => {
+    setOffset(0);
+    setFilter(next);
+  };
 
   return (
     <Page>
@@ -64,6 +83,9 @@ export function SyncHistoryPage() {
 
       <div className="panel">
         <div className="p-hd">
+          <span className="p-chip" aria-hidden="true">
+            <Icon name="sync" size="s" />
+          </span>
           <h3>All syncs</h3>
           <div className="r">
             <div className="seg">
@@ -71,7 +93,7 @@ export function SyncHistoryPage() {
                 <button
                   key={option.key}
                   className={option.key === filter ? 'on' : ''}
-                  onClick={() => setFilter(option.key)}
+                  onClick={() => changeFilter(option.key)}
                 >
                   {option.label}
                 </button>
@@ -85,7 +107,7 @@ export function SyncHistoryPage() {
             <div className="inline-err">
               <Icon name="warn" />
               <div>{error}</div>
-              <button className="btn sm" onClick={() => void load(filter)}>
+              <button className="btn sm" onClick={() => void load(filter, offset)}>
                 Retry
               </button>
             </div>
@@ -171,6 +193,13 @@ export function SyncHistoryPage() {
             <div className="tbl-ft">
               <span>Partial syncs re-fetch only the missing pages on the next run.</span>
             </div>
+            <Pager
+              offset={page.offset}
+              limit={page.limit}
+              total={page.total}
+              onGo={setOffset}
+              unit={page.total === 1 ? 'sync' : 'syncs'}
+            />
           </>
         )}
       </div>

@@ -210,6 +210,9 @@ export function ImportPage() {
         <>
           <div className="panel">
             <div className="p-hd">
+              <span className="p-chip" aria-hidden="true">
+                <Icon name="import" size="s" />
+              </span>
               <h3>Choose a method</h3>
               <span className="hint">All three end at the same import</span>
             </div>
@@ -487,6 +490,9 @@ function ImportSummary({ result, onAnother }: { result: ImportResult; onAnother:
       {(result.warnings ?? []).length > 0 && (
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip amber" aria-hidden="true">
+              <Icon name="warn" size="s" />
+            </span>
             <h3>Worth checking</h3>
             <span className="hint">The file imported, but not the way you may have meant</span>
           </div>
@@ -511,6 +517,9 @@ function ImportSummary({ result, onAnother }: { result: ImportResult; onAnother:
       {Object.keys(result.unmapped_reasons).length > 0 && (
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip amber" aria-hidden="true">
+              <Icon name="warn" size="s" />
+            </span>
             <h3>Reasons not recognised</h3>
             <span className="hint">
               These rows counted towards Total Count, Orders and Qty — only the complaint
@@ -583,6 +592,9 @@ function ImportSummary({ result, onAnother }: { result: ImportResult; onAnother:
       {result.rejected.length > 0 && (
         <div className="panel">
           <div className="p-hd">
+            <span className="p-chip rust" aria-hidden="true">
+              <Icon name="x" size="s" />
+            </span>
             <h3>Rows not imported</h3>
             <span className="hint">Everything else in the file was imported</span>
           </div>

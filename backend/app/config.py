@@ -26,6 +26,12 @@ DEFAULT_EXPORT_DIR = REPO_ROOT / "storage" / "exports"
 #: `sqlite3 .backup` snapshots.
 DEFAULT_BACKUP_DIR = REPO_ROOT / "storage" / "backups"
 
+#: Where a message goes when there is no relay to send it to. See
+#: `mailer.send` — a verification link is useless unless it can be read, and the
+#: application log is not a place it can be: the redaction filter rewrites
+#: `token=...` to `token=***`, correctly and unavoidably.
+DEFAULT_MAIL_OUTBOX_DIR = REPO_ROOT / "storage" / "outbox"
+
 # Regenerated on every process start. Only ever used when jwt_secret is unset,
 # which production forbids.
 _EPHEMERAL_SECRET = secrets.token_urlsafe(48)
@@ -101,10 +107,22 @@ class Settings(BaseSettings):
     #: HTTP. Without it `_require_secure_cookies_in_production` refuses to start.
     allow_insecure_cookies: bool = False
 
-    # --- login throttling ---
-    #: Failed attempts, per account and per client address, before the next one
-    #: is refused outright. Argon2 costs ~95 ms, which is a price ceiling per
-    #: connection rather than a control — concurrency defeats it.
+    # --- sync ---
+    #: How long one sync run may spend pulling orders before it stops cleanly,
+    #: stores its cursor and lets a continuation carry on.
+    #:
+    #: A first sync covers `order_lookback_days` (90 by default) at 250 orders
+    #: per page against Shopify's ~2 requests/second — minutes to tens of
+    #: minutes on a real store, with no natural stopping point. Unbounded, any
+    #: interruption in that window loses the run's *status* (never its data,
+    #: which commits per page) and the next attempt starts the same long walk.
+    #: In development that is every file save, because the worker is a thread
+    #: inside a server started with `--reload`, so the run never converged.
+    #:
+    #: Bounded, the same work happens in chunks that finish: each one records
+    #: what it fetched, and the chain reaches `success` instead of churning.
+    sync_max_seconds: int = Field(default=120, ge=10, le=3600)
+
     # --- expensive-operation rate limiting ---
     #: How many imports, syncs, rebuilds or report generations one user may
     #: start per window, counted per operation. Every one of them runs on the
@@ -115,6 +133,36 @@ class Settings(BaseSettings):
     rate_limit_max_events: int = Field(default=6, ge=1, le=1000)
     rate_limit_window_seconds: int = Field(default=300, ge=10, le=86_400)
 
+    # --- password reset ---
+    #: How long a reset link stays valid. Short, because the link is a
+    #: password-equivalent sitting in an inbox: long enough to walk away from
+    #: the desk and come back, not long enough to matter if the mailbox is
+    #: later compromised.
+    password_reset_ttl_minutes: int = Field(default=30, ge=5, le=240)
+
+    #: Where the reset link points. The API does not know the browser's
+    #: address — same-origin in production, a different port in development —
+    #: so it is configured rather than guessed from the request, which a Host
+    #: header could otherwise poison into sending users to someone else's site.
+    app_base_url: str = "http://localhost:5173"
+
+    # --- outbound email ---
+    #: Unset by default. With no host there is no mail, and a reset link is
+    #: written to the application log instead — which is right for development
+    #: and visible enough in production that it cannot be mistaken for working.
+    smtp_host: str = ""
+    smtp_port: int = Field(default=587, ge=1, le=65_535)
+    smtp_username: str = ""
+    smtp_password: str = ""
+    #: The envelope sender. Falls back to the username when unset.
+    smtp_from: str = ""
+    smtp_starttls: bool = True
+    smtp_timeout_seconds: float = Field(default=10.0, ge=1.0, le=120.0)
+
+    # --- login throttling ---
+    #: Failed attempts, per account and per client address, before the next one
+    #: is refused outright. Argon2 costs ~95 ms, which is a price ceiling per
+    #: connection rather than a control — concurrency defeats it.
     login_max_attempts: int = Field(default=8, ge=1, le=100)
     #: How long the failures are counted over. A window rather than a running
     #: total, so an honest user who mistyped twice last week is not one attempt
@@ -151,6 +199,10 @@ class Settings(BaseSettings):
     # from filling the disk with copies of copies.
     backup_dir: Path = DEFAULT_BACKUP_DIR
     backup_keep: int = Field(default=14, ge=1, le=365)
+
+    # Where undeliverable mail is written, so a development install can finish
+    # a reset or a verification without a relay. Anchored like the two above.
+    mail_outbox_dir: Path = DEFAULT_MAIL_OUTBOX_DIR
 
     # --- M3 ---
     # The Google Sheet export fetch. Shorter than the Shopify timeout: this one
@@ -235,7 +287,7 @@ class Settings(BaseSettings):
 
         return value
 
-    @field_validator("export_dir", "backup_dir", mode="after")
+    @field_validator("export_dir", "backup_dir", "mail_outbox_dir", mode="after")
     @classmethod
     def _anchor_directory(cls, value: Path) -> Path:
         """Same contract as the SQLite path above: relative means repo-relative.
@@ -321,6 +373,20 @@ class Settings(BaseSettings):
         pair is ignored and start-up says so rather than failing silently.
         """
         return self.has_env_shopify_credential and not self.is_production
+
+    @property
+    def email_configured(self) -> bool:
+        """Whether there is anywhere to send mail.
+
+        A host alone is enough: a relay on the same network often needs no
+        credentials, and demanding them would make that setup impossible to
+        express.
+        """
+        return bool(self.smtp_host.strip())
+
+    @property
+    def resolved_smtp_from(self) -> str:
+        return (self.smtp_from or self.smtp_username).strip()
 
     @property
     def resolved_jwt_secret(self) -> str:

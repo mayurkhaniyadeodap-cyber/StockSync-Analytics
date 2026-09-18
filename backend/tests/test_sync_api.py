@@ -1383,3 +1383,182 @@ class TestRecoveryWithoutARestart:
         connected.get(SYNC)
 
         assert rows(SyncRun)[-1].cursor_orders == "cursor-mid"
+
+
+class TestTimeBudget:
+    """A run stops on its own terms instead of walking until something kills it.
+
+    The unbounded version was the local failure: a first sync covers 90 days at
+    250 orders a page against Shopify's ~2 requests/second, and the worker is a
+    thread inside a server started with `--reload`. Every file save killed a run
+    that had minutes left to go, so the status churned
+    `running → interrupted → running` and never reached success — while the data
+    itself was fine all along, because pages commit as they land.
+
+    Bounded, the same work happens in chunks that each finish and record what
+    they fetched.
+    """
+
+    @staticmethod
+    def impatient_clock(monkeypatch: pytest.MonkeyPatch, step: float = 1000.0) -> None:
+        """A monotonic clock that blows any budget after one page.
+
+        Faking the clock rather than sleeping: the point under test is the
+        comparison against the deadline, and a test that waited for a real
+        budget to expire would be slow and flaky for nothing.
+        """
+        ticks = iter(range(1, 100_000))
+
+        def fake() -> float:
+            return next(ticks) * step
+
+        monkeypatch.setattr("app.services.sync.time.monotonic", fake)
+
+    @staticmethod
+    def orders(count: int, first_id: int) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": first_id + i,
+                "name": f"#{first_id + i}",
+                "created_at": "2026-08-01T10:00:00+05:30",
+                "line_items": [{"id": (first_id + i) * 10, "sku": "A-1", "quantity": 1}],
+            }
+            for i in range(count)
+        ]
+
+    def three_pages(self, shopify: Any) -> None:
+        shopify(
+            Shopify(
+                orders=[
+                    self.orders(2, 100),
+                    self.orders(2, 200),
+                    self.orders(2, 300),
+                ]
+            )
+        )
+
+    def test_a_run_that_runs_out_of_time_is_partial_not_failed(
+        self, connected: TestClient, shopify: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Nothing went wrong, so nothing should read as an error. `partial` is
+        what the amber badge and the resume cursor already mean."""
+        self.three_pages(shopify)
+        self.impatient_clock(monkeypatch)
+
+        connected.post(SYNC)
+
+        first = rows(SyncRun)[0]
+        assert first.status == "finished"
+        assert first.result == "partial"
+        assert first.error_code == "sync_paused"
+
+    def test_it_keeps_the_cursor_it_stopped_on(
+        self, connected: TestClient, shopify: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self.three_pages(shopify)
+        self.impatient_clock(monkeypatch)
+
+        connected.post(SYNC)
+
+        assert rows(SyncRun)[0].cursor_orders == "cursor-1"
+
+    def test_it_queues_a_continuation(
+        self, connected: TestClient, shopify: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Otherwise a bounded sync is worse than the unbounded one: it would
+        stop politely and wait for somebody to press Sync again."""
+        self.three_pages(shopify)
+        self.impatient_clock(monkeypatch)
+
+        connected.post(SYNC)
+
+        assert [run.trigger for run in rows(SyncRun)] == ["manual", "continuation", "continuation"]
+
+    def test_the_chain_reaches_success(
+        self, connected: TestClient, shopify: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The whole point. Three pages, a budget that expires every time, and
+        it still ends `success` — because the last page has no next cursor, so
+        that run is not paused and the chain stops there."""
+        self.three_pages(shopify)
+        self.impatient_clock(monkeypatch)
+
+        connected.post(SYNC)
+
+        assert rows(SyncRun)[-1].result == "success"
+
+    def test_the_chain_fetches_every_order_exactly_once(
+        self, connected: TestClient, shopify: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Resuming must not re-fetch or duplicate. Six orders across three
+        pages, and six rows at the end."""
+        self.three_pages(shopify)
+        self.impatient_clock(monkeypatch)
+
+        connected.post(SYNC)
+
+        stored = rows(Order)
+        assert len(stored) == 6
+        assert sorted(o.shopify_order_id for o in stored) == [100, 101, 200, 201, 300, 301]
+
+    def test_a_sync_inside_its_budget_still_succeeds_in_one_run(
+        self, connected: TestClient, shopify: Any
+    ) -> None:
+        """The regression guard: with a real clock and a normal budget nothing
+        about an ordinary sync changes."""
+        self.three_pages(shopify)
+
+        connected.post(SYNC)
+
+        runs = rows(SyncRun)
+        assert len(runs) == 1
+        assert runs[0].result == "success"
+        assert runs[0].cursor_orders is None
+
+    def test_a_failure_does_not_start_a_continuation(
+        self, connected: TestClient, shopify: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A revoked scope would otherwise retry itself forever against a
+        credential nobody has fixed yet."""
+        shopify(Shopify(order_status=403))
+        self.impatient_clock(monkeypatch)
+
+        connected.post(SYNC)
+
+        assert len(rows(SyncRun)) == 1
+        assert rows(SyncRun)[0].error_code != "sync_paused"
+
+
+class TestContinuationTerminates:
+    """`_continue_if_paused` in isolation — the guards that stop a chain."""
+
+    def test_a_stage_that_did_not_pause_never_continues(self) -> None:
+        from app.services.sync import StageOutcome, _continue_if_paused
+
+        run = SyncRun(workspace_id=1, connection_id=1, started_at=utcnow())
+        run.cursor_orders = "cursor-9"
+
+        # Would raise on the None session if it got as far as starting one.
+        _continue_if_paused(
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            run=run,
+            orders=StageOutcome(ok=True, paused=False),
+            cursor_at_start=None,
+        )
+
+    def test_a_pause_that_did_not_advance_never_continues(self) -> None:
+        """The loop guard: a chunk that fetched its way back to where it began
+        would chain forever without moving."""
+        from app.services.sync import StageOutcome, _continue_if_paused
+
+        run = SyncRun(workspace_id=1, connection_id=1, started_at=utcnow())
+        run.cursor_orders = "cursor-9"
+
+        _continue_if_paused(
+            None,  # type: ignore[arg-type]
+            None,  # type: ignore[arg-type]
+            run=run,
+            orders=StageOutcome(ok=True, paused=True, cursor="cursor-9"),
+            cursor_at_start="cursor-9",
+        )

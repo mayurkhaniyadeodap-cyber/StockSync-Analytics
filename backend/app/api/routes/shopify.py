@@ -49,13 +49,21 @@ def _profile_payload(profile: shopify_service.ShopProfile) -> ShopProfilePayload
 
 
 def _state(connection: object | None) -> ConnectionState:
+    """A stored connection, in whatever state it is in.
+
+    ``source`` is ``database`` for every row, including an expired or
+    disconnected one. It used to report ``none`` unless the row was connected,
+    which said the credential came from nowhere while the row sat in the table
+    holding the reason it had stopped working — and the page, reading that,
+    rendered the ``.env`` store instead.
+    """
     if connection is None:
         return ConnectionState(connected=False, connection=None, source="none")
     payload = ConnectionPayload.model_validate(connection)
     return ConnectionState(
         connected=payload.status == "connected",
         connection=payload,
-        source="database" if payload.status == "connected" else "none",
+        source="database",
     )
 
 
@@ -89,17 +97,18 @@ def _env_state(settings: Settings) -> ConnectionState:
 def get_connection(user: CurrentUser, db: DbDep, settings: SettingsDep) -> ConnectionState:
     """Design doc §9.1/§9.4. Never returns the token, encrypted or otherwise.
 
-    A connection stored here wins over ``.env`` — see
-    ``shopify_service.resolve_credential`` for why that ordering matters.
+    A stored row is reported whatever state it is in — expired and disconnected
+    included — and ``.env`` only when there is no row at all. See
+    ``shopify_service.resolve_credential``, which this mirrors exactly.
     """
     connection = ShopifyConnectionRepository(db).get(user.workspace_id)
-    if connection is not None and connection.status == "connected":
+    if connection is not None:
         return _state(connection)
 
     if settings.env_shopify_credential_active:
         return _env_state(settings)
 
-    return _state(connection)
+    return _state(None)
 
 
 @router.post(
@@ -153,6 +162,14 @@ class ConnectionNotStoredError(AppError):
 
 
 class EnvConnectionReadOnlyError(AppError):
+    """Raised only when there is no stored row at all.
+
+    It used to fire for a row that merely was not `connected` too, which made it
+    say "configured in the server environment" about a store that was in the
+    database and simply had an expired token. Now that a row is authoritative
+    the moment it exists, this means what it says.
+    """
+
     code = "env_connection_read_only"
     status_code = 409
     message = "This store is configured in the server environment, so it can't be changed here."
@@ -176,11 +193,14 @@ def update_connection(
     one has to be validated against Shopify first, and a window change does not.
     """
     connection = ShopifyConnectionRepository(db).get(user.workspace_id)
-    if connection is None or connection.status != "connected":
-        # A store named only in .env has no row to write to, and saying "not
-        # connected" about a store the page shows as connected would be a lie.
+    if connection is None:
+        # A store named only in .env has no row to write to.
         if settings.env_shopify_credential_active:
             raise EnvConnectionReadOnlyError
+        raise ConnectionNotStoredError
+    if connection.status != "connected":
+        # There *is* a row; it is just not in a state worth configuring. Saying
+        # so beats writing a window onto a credential that cannot be used.
         raise ConnectionNotStoredError
 
     connection.order_lookback_days = payload.order_lookback_days
@@ -201,9 +221,11 @@ def update_connection(
 )
 def verify_connection(user: CurrentUser, db: DbDep, settings: SettingsDep) -> ConnectionState:
     stored = ShopifyConnectionRepository(db).get(user.workspace_id)
-    if (stored is None or stored.status != "connected") and settings.env_shopify_credential_active:
+    if stored is None and settings.env_shopify_credential_active:
         # Nothing to record a verdict against, so this just proves the .env
-        # pair still works.
+        # pair still works. A row that exists is verified on its own terms
+        # below, however poor a state it is in — that is the whole point of
+        # pressing Verify on an expired connection.
         shopify_service.verify_env_credential(settings)
         return _env_state(settings)
 
@@ -220,10 +242,10 @@ def disconnect(user: CurrentUser, db: DbDep, settings: SettingsDep) -> Connectio
     connection = shopify_service.disconnect(db, settings, workspace_id=user.workspace_id)
     db.commit()
     db.refresh(connection)
-    # A stored connection can be removed while .env still names a store, and
-    # the page must then show the .env one rather than the empty state.
-    if settings.env_shopify_credential_active:
-        return _env_state(settings)
+    # The disconnected row, not the .env store. Handing back `.env` here made
+    # Disconnect look like it had failed: the page came back reporting a
+    # connected store, and a sync then refused because the row it actually
+    # reads was disconnected.
     return _state(connection)
 
 

@@ -99,6 +99,11 @@ export function RankingTable({
               </>
             ) : (
               <>
+                {/* Stock beside the sales figure, because "it sold 512 units"
+                    and "there are three left" are the same decision. The
+                    payload has carried `total_qty` on every ranked row all
+                    along; only this measure was dropping it. */}
+                <th className="n">Available Stock</th>
                 <th className="n">Shopify Sales</th>
                 <th className="n">Shopify Sales %</th>
               </>
@@ -123,6 +128,9 @@ export function RankingTable({
                 </>
               ) : (
                 <>
+                  <td className={`n${row.total_qty === 0 ? ' out' : ''}`}>
+                    {n(row.total_qty)}
+                  </td>
                   <td className="n">{n(row.shopify_sales)}</td>
                   <td className="n">{pct(row.shopify_sales_pct)}</td>
                 </>

@@ -352,6 +352,76 @@ describe('when a store is connected', () => {
   });
 });
 
+describe('a saved store that has stopped working', () => {
+  /**
+   * These states were unreachable on this page until the credential fallback
+   * was tightened: the server answered with the `.env` store instead, so an
+   * expired connection was replaced on screen by a healthy-looking one for a
+   * different shop — a green badge over a sync that was failing.
+   */
+
+  /** A stored row in a state that is not `connected`. */
+  function broken(status: string): Route {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        connected: false,
+        source: 'database',
+        connection: { ...CONNECTED, status },
+      },
+    };
+  }
+
+  it('names the saved store, not a fallback', async () => {
+    vi.stubGlobal('fetch', router({ 'GET /shopify/connection': broken('token_expired') }));
+    renderPage();
+
+    expect(
+      await screen.findByRole('heading', { name: /Reconnect mystore\.myshopify\.com/ }),
+    ).toBeDefined();
+  });
+
+  it('does not claim there is no store connected', async () => {
+    /** There is one. It is saved, and it is broken — a different thing from
+        never having connected, and a different thing to do about it. */
+    vi.stubGlobal('fetch', router({ 'GET /shopify/connection': broken('disconnected') }));
+    renderPage();
+
+    await screen.findByRole('heading', { name: /Reconnect mystore\.myshopify\.com/ });
+    expect(screen.queryByText('No store connected')).toBeNull();
+  });
+
+  it.each([
+    ['token_expired', /Generate a new Admin API access token/],
+    ['missing_scopes', /missing read_orders/],
+    ['disconnected', /its token was deleted/],
+  ])('gives %s its own remedy', async (status, remedy) => {
+    /** Regenerating a token does not grant a scope, and neither is what a
+        deliberate disconnect needs. */
+    vi.stubGlobal('fetch', router({ 'GET /shopify/connection': broken(status) }));
+    renderPage();
+
+    expect(await screen.findByText(remedy)).toBeDefined();
+  });
+
+  it('shows the status badge for the saved row', async () => {
+    vi.stubGlobal('fetch', router({ 'GET /shopify/connection': broken('token_expired') }));
+    renderPage();
+
+    await screen.findByRole('heading', { name: /Reconnect mystore\.myshopify\.com/ });
+    expect(screen.getByText('Token expired')).toBeDefined();
+  });
+
+  it('carries no From .env badge, because the store is the saved one', async () => {
+    vi.stubGlobal('fetch', router({ 'GET /shopify/connection': broken('token_expired') }));
+    renderPage();
+
+    await screen.findByRole('heading', { name: /Reconnect mystore\.myshopify\.com/ });
+    expect(screen.queryByText('From .env')).toBeNull();
+  });
+});
+
 describe('when the store comes from .env', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', router({ 'GET /shopify/connection': FROM_ENV }));

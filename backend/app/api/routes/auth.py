@@ -10,6 +10,7 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Request, Response, status
+from pydantic import BaseModel
 
 from app.api.deps import (
     ACCESS_COOKIE,
@@ -22,8 +23,18 @@ from app.config import Settings
 from app.core.errors import TooManyAttemptsError
 from app.core.throttle import get_login_throttle
 from app.core.throttle import keys_for as throttle_keys
+from app.schemas.auth import (
+    ChangePasswordRequest,
+    ConfirmEmailChangeRequest,
+    EmailChangeRequest,
+    ForgotPasswordRequest,
+    LoginRequest,
+    PreferencesUpdate,
+    ProfileUpdate,
+    ResetPasswordRequest,
+)
 from app.schemas.auth import CurrentUser as CurrentUserSchema
-from app.schemas.auth import LoginRequest, PreferencesUpdate, ProfileUpdate
+from app.services import account, password_reset
 from app.services import auth as auth_service
 from app.services.auth import InvalidCredentialsError
 
@@ -161,6 +172,100 @@ def login(
     return _to_schema(user, issued.access_expires_at)
 
 
+class PasswordResetAccepted(BaseModel):
+    """The one answer `/auth/forgot-password` ever gives.
+
+    Identical whether or not the address belongs to an account. An endpoint that
+    said "no such user" would be a free account-enumeration oracle on a login
+    page, which is the whole reason this is a fixed message rather than a
+    report of what happened.
+    """
+
+    detail: str = (
+        "If that address has an account, a reset link is on its way. "
+        "The link expires shortly and can be used once."
+    )
+
+
+@router.post(
+    "/auth/forgot-password",
+    response_model=PasswordResetAccepted,
+    summary="Send a password reset link",
+)
+def forgot_password(
+    payload: ForgotPasswordRequest,
+    request: Request,
+    db: DbDep,
+    settings: SettingsDep,
+) -> PasswordResetAccepted:
+    """Unauthenticated, so throttled on the same counters as sign-in.
+
+    Sharing the login throttle rather than adding a second one is deliberate:
+    the two endpoints are attacked the same way and for the same account, and
+    separate budgets would let someone spend both. A refusal here also costs the
+    attacker their login attempts, which is the correct trade.
+    """
+    throttle = get_login_throttle(settings)
+    keys = throttle_keys(payload.email, request.client.host if request.client else None)
+    decision = throttle.check(keys)
+    if not decision.allowed:
+        log.warning("password reset refused by throttle for %s", _redacted(payload.email))
+        raise TooManyAttemptsError(decision.retry_after_seconds)
+
+    # Counted as an attempt whether or not the address exists. Only counting
+    # hits would make the throttle itself the oracle the response refuses to be.
+    throttle.record_failure(keys)
+    throttle.prune()
+
+    password_reset.issue(db, settings, email=payload.email)
+    return PasswordResetAccepted()
+
+
+@router.post(
+    "/auth/reset-password",
+    response_model=CurrentUserSchema,
+    summary="Set a new password from a reset link",
+)
+def reset_password(
+    payload: ResetPasswordRequest,
+    request: Request,
+    response: Response,
+    db: DbDep,
+    settings: SettingsDep,
+) -> CurrentUserSchema:
+    """Set the password, then sign the user in on the new one.
+
+    Signing in here rather than bouncing back to the form is the point of the
+    flow: the user has just proved control of the mailbox and chosen a
+    password, and asking them to type it again immediately is ceremony. Every
+    *previous* session was revoked by the reset itself, so this is the only one
+    left alive.
+    """
+    user = password_reset.reset(db, settings, token=payload.token, new_password=payload.password)
+
+    issued = auth_service.issue_session(
+        db,
+        settings,
+        user=user,
+        remember_me=False,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    db.refresh(user)
+
+    # The account is no longer under suspicion: whoever this is holds the
+    # mailbox. Clearing the counters stops a reset leaving them locked out by
+    # the failed attempts that sent them here.
+    get_login_throttle(settings).record_success(
+        throttle_keys(user.email, request.client.host if request.client else None)
+    )
+
+    _set_auth_cookies(response, settings, issued, remember_me=False)
+    log.info("password reset sign-in for user_id=%s", user.id)
+    return _to_schema(user, issued.access_expires_at)
+
+
 @router.post("/auth/refresh", response_model=CurrentUserSchema, summary="Rotate the session")
 def refresh(
     request: Request,
@@ -250,3 +355,100 @@ def update_profile(
     db.commit()
     db.refresh(user)
     return _to_schema(user)
+
+
+class EmailChangePending(BaseModel):
+    """What the user is told after asking to move their address.
+
+    The proposed address is echoed because the caller is authenticated and
+    supplied it a moment ago — there is nothing to leak, and "we sent it to
+    *somewhere*" is a poor thing to read when you may have mistyped it.
+    """
+
+    pending_email: str
+    detail: str = "Open the link we sent to that address to finish the change."
+
+
+@router.post(
+    "/auth/change-email",
+    response_model=EmailChangePending,
+    summary="Ask to move your sign-in address",
+)
+def change_email(
+    payload: EmailChangeRequest,
+    user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> EmailChangePending:
+    """Nothing is written here — the address changes when the link is opened."""
+    pending = account.request_email_change(
+        db,
+        settings,
+        user=user,
+        new_email=payload.new_email,
+        current_password=payload.current_password,
+    )
+    return EmailChangePending(pending_email=pending)
+
+
+@router.post(
+    "/auth/verify-email",
+    response_model=CurrentUserSchema,
+    summary="Complete an email change from its link",
+)
+def verify_email(
+    payload: ConfirmEmailChangeRequest,
+    db: DbDep,
+    settings: SettingsDep,
+) -> CurrentUserSchema:
+    """Unauthenticated: the token is the authority.
+
+    The link is opened wherever the new mailbox is read, which is routinely a
+    browser with no session — requiring one would make the flow impossible to
+    finish on a phone.
+    """
+    changed = account.confirm_email_change(db, settings, token=payload.token)
+    return _to_schema(changed)
+
+
+@router.post(
+    "/auth/change-password",
+    response_model=CurrentUserSchema,
+    summary="Change your password",
+)
+def change_password(
+    payload: ChangePasswordRequest,
+    request: Request,
+    response: Response,
+    user: CurrentUser,
+    db: DbDep,
+    settings: SettingsDep,
+) -> CurrentUserSchema:
+    """Change it, cut every session, then issue this browser a new one.
+
+    Every session including the caller's own is revoked, and a fresh one is set
+    on the way out. Sparing the current session would mean a password change is
+    no protection against the thing it is usually done about — someone else's
+    browser holding a live refresh token.
+    """
+    account.change_password(
+        db,
+        user=user,
+        current_password=payload.current_password,
+        new_password=payload.new_password,
+    )
+
+    issued = auth_service.issue_session(
+        db,
+        settings,
+        user=user,
+        remember_me=False,
+        user_agent=request.headers.get("user-agent"),
+        ip_address=request.client.host if request.client else None,
+    )
+    db.commit()
+    db.refresh(user)
+
+    _set_auth_cookies(response, settings, issued, remember_me=False)
+    log.info("password changed and session reissued for user_id=%s", user.id)
+    return _to_schema(user, issued.access_expires_at)

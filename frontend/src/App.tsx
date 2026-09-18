@@ -3,13 +3,17 @@ import type { ReactNode } from 'react';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { Icon } from './components/Icon';
+import { Logo } from './components/Logo';
 import { Skeleton } from './components/Skeleton';
 import { AppShell } from './components/shell/AppShell';
 import { AuthProvider } from './contexts/AuthContext';
 import { ThemeProvider } from './contexts/ThemeContext';
 import { ToastProvider } from './contexts/ToastContext';
 import { useAuth } from './hooks/useAuth';
+import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
 import { LoginPage } from './pages/LoginPage';
+import { ResetPasswordPage } from './pages/ResetPasswordPage';
+import { VerifyEmailPage } from './pages/VerifyEmailPage';
 import { SettingsPage } from './pages/SettingsPage';
 import {
   AnalyticsPage,
@@ -82,7 +86,7 @@ function BootScreen() {
       aria-busy="true"
       aria-label="Loading StockSync Analytics"
     >
-      <Icon name="layers" size="l" style={{ color: 'var(--slate)' }} />
+      <Logo size={40} />
       <Skeleton height={3} width={132} radius={999} />
     </div>
   );
@@ -99,6 +103,13 @@ export default function App() {
           <AuthProvider>
             <Routes>
               <Route path="/login" element={<LoginPage />} />
+              {/* Signed-out, both of them: someone who has forgotten their
+                  password cannot be asked to sign in to say so. */}
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
+              {/* Also signed-out: the link is opened wherever the new mailbox
+                  is read, which is usually not a browser with a session. */}
+              <Route path="/verify-email" element={<VerifyEmailPage />} />
 
               <Route
                 element={

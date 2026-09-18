@@ -85,6 +85,21 @@ class UnknownComplaintCategoryError(AppError):
 #: cannot ask for a window the rollup was never built over.
 RangeQuery = Query(default=analytics_service.DEFAULT_RANGE, ge=1, le=365)
 
+#: Whether complaint figures follow the date range.
+#:
+#: `range` is the long-standing behaviour and stays the default, so every
+#: existing caller is unaffected: a SKU imported from a dated complaint export
+#: is summed over the window, and one from an aggregated sheet keeps the totals
+#: that sheet stated.
+#:
+#: `total` asks for the sheet's own record for every SKU, dated or not. The
+#: Dashboard sends it. Its other figures are all snapshots of the newest import,
+#: and a complaint total that moved with the range while the order count beside
+#: it did not made the complaint rate a ratio of two different periods.
+#: Complaint Analytics does not send it — following the range is that page's
+#: whole purpose.
+ComplaintBasisQuery = Query(default="range", pattern="^(range|total)$")
+
 #: The longest custom window, matching the cap on ``days`` above. The rollup is
 #: built over a bounded history; asking for more would return a window the data
 #: cannot fill and read as a collapse in sales.
@@ -97,13 +112,15 @@ COMPLAINT_PAYLOAD = [
 ]
 
 
-def _kpis(db: DbDep, workspace_id: int, days: int) -> KpiPayload:
+def _kpis(db: DbDep, workspace_id: int, days: int, windowed_complaints: bool = True) -> KpiPayload:
     computed = db.scalar(
         select(func.max(SkuDailyMetric.computed_at)).where(
             SkuDailyMetric.workspace_id == workspace_id
         )
     )
-    figures = analytics_service.kpis(db, workspace_id=workspace_id, days=days)
+    figures = analytics_service.kpis(
+        db, workspace_id=workspace_id, days=days, windowed_complaints=windowed_complaints
+    )
     return KpiPayload(
         **{k: v for k, v in figures.__dict__.items() if k != "complaint_scope"},
         complaint_scope=_scope_payload(figures.complaint_scope),
@@ -140,7 +157,12 @@ def _trend(db: DbDep, workspace_id: int, days: int) -> TrendPayload:
 
 
 @router.get("/overview", response_model=AnalyticsOverview, summary="The dashboard, in one call")
-def overview(user: CurrentUser, db: DbDep, days: int = RangeQuery) -> AnalyticsOverview:
+def overview(
+    user: CurrentUser,
+    db: DbDep,
+    days: int = RangeQuery,
+    complaints: str = ComplaintBasisQuery,
+) -> AnalyticsOverview:
     workspace_id = user.workspace_id
     has_data = bool(
         db.scalar(
@@ -148,7 +170,7 @@ def overview(user: CurrentUser, db: DbDep, days: int = RangeQuery) -> AnalyticsO
         )
     )
     return AnalyticsOverview(
-        kpis=_kpis(db, workspace_id, days),
+        kpis=_kpis(db, workspace_id, days, windowed_complaints=complaints == "range"),
         trend=_trend(db, workspace_id, days),
         has_data=has_data,
     )
@@ -194,7 +216,11 @@ def skus(
 
 
 def _facts_between(
-    db: DbDep, workspace_id: int, since: date, until: date
+    db: DbDep,
+    workspace_id: int,
+    since: date,
+    until: date,
+    windowed_complaints: bool = True,
 ) -> tuple[list[SkuFact], int]:
     """Facts over an explicit window, and the store's total units in it.
 
@@ -204,19 +230,22 @@ def _facts_between(
     """
     repository = SkuFactRepository(db)
     return (
-        repository.facts(workspace_id, since=since, until=until),
+        repository.facts(
+            workspace_id,
+            since=since,
+            until=until,
+            windowed_complaints=windowed_complaints,
+        ),
         repository.window_units(workspace_id, since=since, until=until),
     )
 
 
-def _facts(db: DbDep, workspace_id: int, days: int) -> tuple[list[SkuFact], int]:
+def _facts(
+    db: DbDep, workspace_id: int, days: int, windowed_complaints: bool = True
+) -> tuple[list[SkuFact], int]:
     """The one read both Analytics endpoints derive from."""
     since, until = analytics_service.window(days)
-    repository = SkuFactRepository(db)
-    return (
-        repository.facts(workspace_id, since=since, until=until),
-        repository.window_units(workspace_id, since=since, until=until),
-    )
+    return _facts_between(db, workspace_id, since, until, windowed_complaints)
 
 
 @router.get(
@@ -224,7 +253,12 @@ def _facts(db: DbDep, workspace_id: int, days: int) -> tuple[list[SkuFact], int]
     response_model=AnalyticsInsights,
     summary="The Analytics page, above the table",
 )
-def insights(user: CurrentUser, db: DbDep, days: int = RangeQuery) -> AnalyticsInsights:
+def insights(
+    user: CurrentUser,
+    db: DbDep,
+    days: int = RangeQuery,
+    complaints: str = ComplaintBasisQuery,
+) -> AnalyticsInsights:
     """KPIs, sales, complaints, rankings, inventory insights and quick cards.
 
     All of it from one read of the SKU facts, so no two panels can describe
@@ -232,7 +266,7 @@ def insights(user: CurrentUser, db: DbDep, days: int = RangeQuery) -> AnalyticsI
     because they fold the same list.
     """
     workspace_id = user.workspace_id
-    facts, all_units = _facts(db, workspace_id, days)
+    facts, all_units = _facts(db, workspace_id, days, windowed_complaints=complaints == "range")
     computed = db.scalar(
         select(func.max(SkuDailyMetric.computed_at)).where(
             SkuDailyMetric.workspace_id == workspace_id
@@ -302,6 +336,9 @@ class PerformanceQuery:
     min_qty: int | None = Query(default=None, ge=0)
     max_qty: int | None = Query(default=None, ge=0)
     status: str | None = Query(default=None, pattern=STATUS_PATTERN)
+    #: See `ComplaintBasisQuery`. On the dependency rather than each route so
+    #: the table and its export cannot disagree about it.
+    complaints: str = Query(default="range", pattern="^(range|total)$")
     # The shared ordering, so a client that omits `sort` gets the same table the
     # UI shows rather than a different one.
     sort: str = Query(default=insights_service.DEFAULT_SORT, pattern=SORT_PATTERN)
@@ -365,6 +402,10 @@ class PerformanceQuery:
 PerformanceQueryDep = Annotated[PerformanceQuery, Depends()]
 
 
+def _windowed_complaints(query: PerformanceQuery) -> bool:
+    return query.complaints == "range"
+
+
 def _performance_rows(
     db: DbDep, workspace_id: int, query: PerformanceQuery, *, limit: int, offset: int
 ) -> tuple[list[insights_service.PerformanceRow], int, ComplaintScope]:
@@ -374,7 +415,9 @@ def _performance_rows(
     the SKUs imported with dates on them. The scope says which those were.
     """
     since, until = query.window()
-    facts, _store_units = _facts_between(db, workspace_id, since, until)
+    facts, _store_units = _facts_between(
+        db, workspace_id, since, until, _windowed_complaints(query)
+    )
     rows, total = insights_service.performance(
         facts,
         filters=query.filters(),
