@@ -44,3 +44,34 @@ export function today(): string {
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
   return local.toISOString().slice(0, 10);
 }
+
+/**
+ * The first day the selected range covers, as `yyyy-mm-dd`.
+ *
+ * Mirrors `core.window.window_for` on the server: a preset of `days` is
+ * inclusive of today, so it begins `days - 1` days back, not `days`. Kept
+ * beside `rangeParams` because the two have to describe the same period — one
+ * sends it, the other says what was sent.
+ *
+ * Client-side rather than read from the response because no payload carries the
+ * resolved bounds; only `days` comes back. The two can differ by a day for a
+ * reader whose clock is on the far side of midnight from the server's, which is
+ * why nothing is *computed* from this — it decides whether to show a sentence.
+ */
+export function rangeStart(range: DateRange): string {
+  return range.kind === 'custom' ? range.since : startOfTrailingDays(range.days);
+}
+
+/**
+ * The first day of a trailing window of `days` ending today, as `yyyy-mm-dd`.
+ *
+ * Separate from `rangeStart` because the Dashboard holds its period as a bare
+ * day count rather than a `DateRange`, and both screens have to agree about
+ * which day the window opens on. One arithmetic, two ways in.
+ */
+export function startOfTrailingDays(days: number): string {
+  const start = new Date(`${today()}T00:00:00`);
+  start.setDate(start.getDate() - (days - 1));
+  const local = new Date(start.getTime() - start.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
+}

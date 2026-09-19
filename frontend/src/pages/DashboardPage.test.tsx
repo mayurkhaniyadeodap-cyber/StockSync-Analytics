@@ -1390,6 +1390,135 @@ describe('what the date range is allowed to move', () => {
     await loaded();
     expect(screen.getByText(/does not move with it/)).toBeDefined();
   });
+
+  it('asks Products Requiring Attention for the whole record too', async () => {
+    /**
+     * That panel is ranked by the server's `status`, which is computed from the
+     * complaint count — so the basis decides what it shows, not merely how the
+     * figure reads. Under `range`, a SKU whose complaints all fall outside the
+     * window classifies as `excellent` and drops out of the one table whose
+     * whole job is to surface it.
+     *
+     * Pinned separately from the request above because that one matches the SKU
+     * table's `sort=total_complaints`; this panel sends `sort=status` and is a
+     * different call.
+     */
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
+    renderPage();
+
+    await loaded();
+    await waitFor(() => {
+      const attention = fetcher.mock.calls
+        .map(([input]) => String(input))
+        .filter((url) => url.includes('sort=status'));
+      expect(attention.length).toBeGreaterThan(0);
+      for (const url of attention) expect(url).toContain('complaints=total');
+    });
+  });
+});
+
+/**
+ * The complaint rate, wherever it is shown.
+ *
+ * Two screens carry it — the card and the Rate column in Products Requiring
+ * Attention — and both can legitimately compute more than 100%: one order can
+ * draw several complaints, and the date range moves the numerator while the
+ * order count stays a snapshot of the newest import. The ratio is real; the
+ * reported figure stops at 100%, because a percentage past it reads as a
+ * broken number rather than a large one.
+ */
+describe('the complaint rate never exceeds 100%', () => {
+  const withKpis = (over: Partial<Kpis>) =>
+    routes({
+      'GET /analytics/overview': {
+        ok: true,
+        status: 200,
+        body: overview({ kpis: kpis(over) }),
+      },
+    });
+
+  const withRows = (...rows: PerformanceRow[]) =>
+    routes({
+      'GET /analytics/performance': {
+        ok: true,
+        status: 200,
+        body: {
+          rows,
+          complaint_columns: COMPLAINT_COLUMNS,
+          complaint_scope: DATED_SCOPE,
+          total: rows.length,
+          limit: 50,
+          offset: 0,
+        },
+      },
+    });
+
+  it('caps the card at 100% when complaints outnumber orders', async () => {
+    vi.stubGlobal('fetch', withKpis({ total_complaints: 250, total_orders: 80 }));
+    renderPage();
+
+    await loaded();
+    // 312.5% before the cap.
+    expect(within(cards()).getByText('100.00%')).toBeDefined();
+    expect(within(cards()).queryByText('312.50%')).toBeNull();
+  });
+
+  it('shows exactly 100% when every order drew one complaint', async () => {
+    vi.stubGlobal('fetch', withKpis({ total_complaints: 80, total_orders: 80 }));
+    renderPage();
+
+    await loaded();
+    expect(within(cards()).getByText('100.00%')).toBeDefined();
+  });
+
+  it('leaves a rate below the cap alone', async () => {
+    vi.stubGlobal('fetch', withKpis({ total_complaints: 20, total_orders: 80 }));
+    renderPage();
+
+    await loaded();
+    expect(within(cards()).getByText('25.00%')).toBeDefined();
+  });
+
+  it('caps the Rate column in Products Requiring Attention', async () => {
+    vi.stubGlobal(
+      'fetch',
+      withRows(row({ total_complaints: 55, total_orders: 8, status: 'critical' })),
+    );
+    renderPage();
+
+    await loaded();
+    // 687.5% before the cap.
+    const attention = within(panel('Products Requiring Attention'));
+    expect(await attention.findByText('100.00%')).toBeDefined();
+  });
+
+  it('shows no rate at all in that column when the SKU has no orders', async () => {
+    /** Zero orders is not a rate of zero, and dividing by it is not a number. */
+    vi.stubGlobal(
+      'fetch',
+      withRows(row({ total_complaints: 55, total_orders: 0, status: 'critical' })),
+    );
+    renderPage();
+
+    await loaded();
+    const attention = within(panel('Products Requiring Attention'));
+    expect(await attention.findByText('—')).toBeDefined();
+    expect(attention.queryByText('0.00%')).toBeNull();
+    expect(attention.queryByText(/NaN/)).toBeNull();
+  });
+
+  it('leaves a per-SKU rate below the cap alone', async () => {
+    vi.stubGlobal(
+      'fetch',
+      withRows(row({ total_complaints: 12, total_orders: 480, status: 'critical' })),
+    );
+    renderPage();
+
+    await loaded();
+    const attention = within(panel('Products Requiring Attention'));
+    expect(await attention.findByText('2.50%')).toBeDefined();
+  });
 });
 
 describe('Best-Selling Products', () => {

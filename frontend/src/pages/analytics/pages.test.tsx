@@ -26,6 +26,7 @@ import {
   requested,
   routes,
 } from '../../../tests/fixtures/analytics';
+import type { Route } from '../../../tests/fixtures/analytics';
 import { ShopifyStatusProvider } from '../../contexts/ShopifyStatusContext';
 import { ToastProvider } from '../../contexts/ToastContext';
 
@@ -730,14 +731,18 @@ describe('SKU Performance', () => {
     /**
      * Two of the columns are Shopify's and move with the range; the sheet's own
      * counts do not. Nothing on the row says so on its own.
+     *
+     * Found by class rather than by its words: this used to match on "most
+     * recent import", which is now only what the note says when no upload date
+     * is known. The assertions below are the ones that matter and are unchanged.
      */
     vi.stubGlobal('fetch', routes());
-    renderPage(<PerformancePage />);
+    const { container } = renderPage(<PerformancePage />);
 
     await screen.findByText('SKU Performance');
-    const note = screen.getByText(/most recent import/);
-    expect(note.textContent).toContain('the last 30 days');
-    expect(note.textContent).toContain('Total Orders');
+    const note = container.querySelector('.trend-scope');
+    expect(note?.textContent).toContain('the last 30 days');
+    expect(note?.textContent).toContain('Total Orders');
   });
 
   it('confirms the range applies when every complaint is dated', async () => {
@@ -982,6 +987,186 @@ describe('SKU Performance', () => {
     await userEvent.type(screen.getByLabelText('Search SKU'), 'DD');
 
     expect(await screen.findByText(/Showing 3 of 120 matching SKUs/)).toBeDefined();
+  });
+});
+
+/**
+ * The period note above the table.
+ *
+ * Three of these columns follow the date picker and three do not, and the page
+ * offers one control for all six. The note is the only thing that says so, and
+ * a reader who misses it reads a July snapshot as a figure for the last 30 days.
+ *
+ * The date it shows is the **upload**. Nothing in the system records the period
+ * a sheet covers — a file exported in July and uploaded in September has a
+ * September timestamp and July contents — so the wording has to stop at when
+ * the file arrived. Saying more would be a guess presented as a fact.
+ */
+describe('the period note names which columns move with the range', () => {
+  /** The note's text, whatever it turned out to be. */
+  async function noteText(over: Record<string, Route> = {}): Promise<string> {
+    vi.stubGlobal('fetch', routes(over));
+    const { container } = renderPage(<PerformancePage />);
+    await screen.findByText('SKU Performance');
+    await waitFor(() => expect(container.querySelector('.trend-scope')).not.toBeNull());
+    return container.querySelector('.trend-scope')?.textContent ?? '';
+  }
+
+  it('names the two columns the range does move', async () => {
+    const text = await noteText();
+
+    expect(text).toContain('Shopify Sales');
+    expect(text).toContain('Shopify Sales %');
+    expect(text).toContain('the last 30 days');
+  });
+
+  it('names all three snapshot columns', async () => {
+    /** Total Count was missing from this list and is the one most often read
+        as a windowed figure, because it sits beside the complaint columns. */
+    const text = await noteText();
+
+    expect(text).toContain('Total Count');
+    expect(text).toContain('Total Quantity');
+    expect(text).toContain('Total Orders');
+    expect(text).toContain('do not change with the range');
+  });
+
+  it('gives the day the sheet was uploaded', async () => {
+    const text = await noteText();
+
+    expect(text).toContain('you uploaded on 18 September 2026');
+  });
+
+  it('says uploaded, never that the data covers that date', async () => {
+    /**
+     * The distinction the whole note turns on. `SkuReport_20260725113449.xlsx`
+     * was uploaded on 18 September and holds figures from 25 July; a note
+     * claiming the data is "as of" or "through" the upload date would be
+     * wrong by eight weeks.
+     */
+    const text = await noteText();
+
+    expect(text).toContain('uploaded');
+    expect(text).not.toMatch(/as of|current to|through 18 September|data from 18 September/i);
+  });
+
+  it('still explains the columns when no upload date is known', async () => {
+    /** Before the first import, and for any older payload that omits it. */
+    const text = await noteText({
+      'GET /analytics/performance': {
+        ok: true,
+        status: 200,
+        body: { ...PERFORMANCE, last_imported_at: null },
+      },
+    });
+
+    expect(text).toContain('Total Count');
+    expect(text).toContain('from your most recent import');
+    expect(text).toContain('do not change with the range');
+    expect(text).not.toContain('uploaded on');
+  });
+
+  it('leaves the date out rather than printing an unreadable one', async () => {
+    const text = await noteText({
+      'GET /analytics/performance': {
+        ok: true,
+        status: 200,
+        body: { ...PERFORMANCE, last_imported_at: 'not-a-timestamp' },
+      },
+    });
+
+    expect(text).not.toContain('Invalid Date');
+    expect(text).toContain('from your most recent import');
+  });
+});
+
+/**
+ * Which basis each page asks for, and why they differ.
+ *
+ * `?complaints=` decides whether a SKU's complaint figure is the window's slice
+ * or the sheet's whole record, and the three pages want different answers:
+ *
+ * | | |
+ * |---|---|
+ * | SKU Performance | `total` — its other sheet columns are a snapshot, and `status` is computed from the complaint count |
+ * | Complaint Analytics | `total` — all-time by requirement; this page does not show Shopify Sales, which is the only thing the range is for |
+ * | The export | whatever the screen asked, so the file matches what was on it |
+ *
+ * Asserted on the request rather than on the rendered figure because it is the
+ * request that decides: a page that quietly stopped sending the parameter would
+ * still render a plausible-looking number.
+ */
+describe('which complaint basis each page asks for', () => {
+  it('SKU Performance asks for the whole record', async () => {
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
+    renderPage(<PerformancePage />);
+
+    await screen.findByText('SKU Performance');
+    await waitFor(() => expect(requested(fetcher, '/analytics/performance').length).toBeGreaterThan(0));
+
+    for (const url of requested(fetcher, '/analytics/performance')) {
+      expect(url).toContain('complaints=total');
+    }
+  });
+
+  it('keeps asking for it after a filter changes', async () => {
+    /** The parameter is built in the memo the filters feed, so a rebuild of the
+        query must not drop it. */
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
+    renderPage(<PerformancePage />);
+    await screen.findByText('SKU Performance');
+
+    fireEvent.change(screen.getByLabelText('Search SKU'), { target: { value: 'DD-10' } });
+
+    await waitFor(() =>
+      expect(requested(fetcher, '/analytics/performance').some((u) => u.includes('search=DD-10'))).toBe(
+        true,
+      ),
+    );
+    for (const url of requested(fetcher, '/analytics/performance')) {
+      expect(url).toContain('complaints=total');
+    }
+  });
+
+  it('Complaint Analytics is all-time, as it was required to be', async () => {
+    /**
+     * **Not range-based.** This page was deliberately frozen to all-time
+     * complaint data — the date range exists for Shopify Sales, which it does
+     * not show — so it sends `complaints=total` with an all-time window. A test
+     * asserting it follows the range would be asserting a regression.
+     */
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
+    renderPage(<ComplaintsPage />);
+
+    await screen.findByText('Complaint Analytics');
+    await waitFor(() => expect(requested(fetcher, '/analytics/insights').length).toBeGreaterThan(0));
+
+    for (const url of requested(fetcher, '/analytics/insights')) {
+      expect(url).toContain('complaints=total');
+    }
+  });
+
+  it('the export carries the same basis as the screen', async () => {
+    /** The file is meant to match what the reader was looking at; a CSV whose
+        complaint column came from a different basis would not. */
+    const fetcher = routes();
+    vi.stubGlobal('fetch', fetcher);
+    renderPage(<PerformancePage />);
+    await screen.findByText('SKU Performance');
+
+    const assign = vi.fn();
+    Object.defineProperty(window, 'location', {
+      value: { assign, href: '' },
+      writable: true,
+    });
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /CSV/ }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalled());
+    expect(String(assign.mock.calls[0]?.[0])).toContain('complaints=total');
   });
 });
 

@@ -35,6 +35,15 @@ class ComplaintScopePayload(BaseModel):
     #: Complaints no range can hold. The count is data, so a page can say how
     #: much of the tally it is not filtering.
     undated_complaints: int = 0
+    #: The newest day the workspace holds a dated complaint for, or null when it
+    #: holds none. A range beginning after this date can only return zero from
+    #: the dated records, which on screen is indistinguishable from a period
+    #: that genuinely had no complaints — so the date is sent and the client
+    #: says which of the two it is looking at.
+    #:
+    #: Optional with a null default, so a client that has not been updated
+    #: parses this payload exactly as before.
+    dated_through: date | None = None
 
 
 class KpiPayload(BaseModel):
@@ -268,6 +277,20 @@ class PerformancePage(BaseModel):
     days: int
     sort: str
     descending: bool
+    #: When the newest sheet row was uploaded, or null before any import.
+    #:
+    #: **This is the upload time, not the period the sheet covers.** Three
+    #: columns on this page — Total Count, Total Quantity, Total Orders — are a
+    #: snapshot of that file rather than figures for the selected range, and
+    #: without a date beside them a reader has no way to tell how old they are.
+    #:
+    #: What it cannot say is how current the *contents* are: a file exported in
+    #: July and uploaded in September has a September timestamp. Nothing records
+    #: the period a sheet covers, so the client must word this as the upload and
+    #: not imply anything further.
+    #:
+    #: Optional with a null default, so an older client parses this unchanged.
+    last_imported_at: datetime | None = None
 
 
 class RebuildResultPayload(BaseModel):

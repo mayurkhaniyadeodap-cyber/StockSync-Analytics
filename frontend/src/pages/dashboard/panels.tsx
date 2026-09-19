@@ -14,7 +14,7 @@ import { Icon } from '../../components/Icon';
 import { Skeleton } from '../../components/Skeleton';
 import { BarChart } from '../../components/charts/BarChart';
 import { DonutChart } from '../../components/charts/DonutChart';
-import { n, pct, sharePct } from '../../lib/format';
+import { complaintRate, n, pct, sharePct } from '../../lib/format';
 import type { AnalyticsInsights, Kpis, PerformanceRow } from '../../types/api';
 import { RankingTable, StatusBadge } from '../analytics/parts';
 import { ATTENTION_ROWS } from './useDashboardPanels';
@@ -26,6 +26,12 @@ function Loading({ height = 150 }: { height?: number }) {
       <Skeleton height={height} />
     </div>
   );
+}
+
+/** A complaint rate for a table cell: capped at 100%, an em dash when there is none. */
+function rateCell(complaints: number, orders: number): string {
+  const rate = complaintRate(complaints, orders);
+  return rate === null ? '—' : pct(rate);
 }
 
 function Failed({ error, onRetry }: { error: string; onRetry: () => void }) {
@@ -279,12 +285,10 @@ export function AttentionPanel({
                 <td className="n">{n(row.total_complaints)}</td>
                 {/* Complaints against the sheet's own order count. Both figures
                     come from the same import, so the ratio is comparable; with
-                    no orders there is no rate, which is not a rate of zero. */}
-                <td className="n">
-                  {row.total_orders > 0
-                    ? pct(sharePct(row.total_complaints, row.total_orders))
-                    : '—'}
-                </td>
+                    no orders there is no rate, which is not a rate of zero.
+                    Capped at 100% by `complaintRate` — a SKU with several
+                    complaints per order really does exceed it. */}
+                <td className="n">{rateCell(row.total_complaints, row.total_orders)}</td>
                 <td>
                   <StatusBadge status={row.status} />
                 </td>

@@ -190,7 +190,12 @@ class TestAnUndatedImportKeepsItsTotals:
     def test_the_payload_carries_no_sentence(self, store: TestClient) -> None:
         """`note` was removed: a string the client never rendered went stale,
         claiming no Complaint Date column on a workspace that had 308 dated
-        SKUs. The counts are the contract now."""
+        SKUs. The counts are the contract now.
+
+        ``dated_through`` joined them later and is data in the same way — a
+        date, not a sentence about one. The exact key set is still asserted so
+        that a *sentence* reappearing here is caught.
+        """
         scope = store.get(f"{PERFORMANCE}?days=30").json()["complaint_scope"]
 
         assert "note" not in scope
@@ -199,6 +204,7 @@ class TestAnUndatedImportKeepsItsTotals:
             "dated_skus",
             "undated_skus",
             "undated_complaints",
+            "dated_through",
         }
 
     def test_a_sku_with_no_complaints_does_not_raise_the_note(self, signed_in: TestClient) -> None:
@@ -606,3 +612,137 @@ class TestReimporting:
 
         rows = signed_in.get(f"{PERFORMANCE}?days=30&limit=50").json()["rows"]
         assert rows[0]["total_complaints"] == 3
+
+
+class TestHowFarTheDatedRecordReaches:
+    """``dated_through``: the newest day the workspace has a dated complaint for.
+
+    It exists because two very different situations produce the same zero on
+    screen. "No complaints in the last 30 days" is good news about the products.
+    "The complaint export stops 51 days ago" means the figure is stale and
+    nobody has noticed. The counts beside it cannot tell those apart — both give
+    a windowed total of zero against a positive ``dated_skus`` — so the date is
+    sent and the client says which one the reader is looking at.
+    """
+
+    def test_it_is_the_newest_dated_complaint(self, signed_in: TestClient) -> None:
+        dated(signed_in, ("DD-1", 40, 2), ("DD-2", 9, 3))
+
+        scope = signed_in.get(f"{PERFORMANCE}?days=30").json()["complaint_scope"]
+
+        assert scope["dated_through"] == days_ago(9)
+
+    def test_it_is_null_when_no_complaint_carries_a_date(self, signed_in: TestClient) -> None:
+        """An aggregated sheet writes no row to ``sku_daily_complaints`` at all."""
+        aggregated(signed_in, ("DD-1", 7))
+
+        scope = signed_in.get(f"{PERFORMANCE}?days=30").json()["complaint_scope"]
+
+        assert scope["dated_through"] is None
+
+    def test_it_is_null_on_a_workspace_that_has_imported_nothing(
+        self, signed_in: TestClient
+    ) -> None:
+        scope = signed_in.get(f"{PERFORMANCE}?days=30").json()["complaint_scope"]
+
+        assert scope["dated_through"] is None
+
+    def test_it_does_not_move_with_the_selected_window(self, signed_in: TestClient) -> None:
+        """The whole point. A window ending before the newest record must still
+        report where that record ends — otherwise the date could never warn
+        anybody, because the case it warns about is exactly the case where the
+        window holds nothing."""
+        dated(signed_in, ("DD-1", 40, 2))
+
+        for days in (1, 30, 365):
+            scope = signed_in.get(f"{PERFORMANCE}?days={days}").json()["complaint_scope"]
+            assert scope["dated_through"] == days_ago(40), days
+
+    def test_it_survives_a_window_that_selects_nothing(self, signed_in: TestClient) -> None:
+        """The situation on the live workspace: dated records exist, the
+        selected range begins after all of them, every windowed total is zero."""
+        dated(signed_in, ("DD-1", 40, 2))
+
+        body = signed_in.get(f"{PERFORMANCE}?days=7&limit=50").json()
+
+        assert body["rows"][0]["total_complaints"] == 0
+        assert body["complaint_scope"]["dated_skus"] == 1
+        assert body["complaint_scope"]["dated_through"] == days_ago(40)
+
+    def test_every_surface_that_carries_a_scope_carries_the_date(
+        self, signed_in: TestClient
+    ) -> None:
+        """Four endpoints build this payload. One of them reading the date from
+        somewhere else is how the Dashboard and SKU Performance would come to
+        disagree about when the complaint data ends."""
+        dated(signed_in, ("DD-1", 12, 2))
+
+        for endpoint in (f"{PERFORMANCE}?days=30", f"{SKUS}?days=30", f"{INSIGHTS}?days=30"):
+            scope = signed_in.get(endpoint).json()["complaint_scope"]
+            assert scope["dated_through"] == days_ago(12), endpoint
+
+    def test_the_mixed_workspace_reports_the_dated_half(self, signed_in: TestClient) -> None:
+        """An undated row contributes no date, so the answer comes from the
+        dated rows alone rather than being suppressed by the undated ones."""
+        part_dated(signed_in, dated_sku="DD-1", undated_sku="DD-2", rows=2)
+
+        scope = signed_in.get(f"{PERFORMANCE}?days=30").json()["complaint_scope"]
+
+        assert scope["dated_skus"] == 1
+        assert scope["undated_skus"] == 1
+        assert scope["dated_through"] == days_ago(2)
+
+    def test_an_older_client_still_parses_the_payload(self, signed_in: TestClient) -> None:
+        """Additive and optional: the four fields that were there are unchanged,
+        so a client that has not been updated reads this exactly as before."""
+        dated(signed_in, ("DD-1", 2, 3))
+
+        scope = signed_in.get(f"{PERFORMANCE}?days=30").json()["complaint_scope"]
+
+        assert set(scope) == {
+            "filtered_by_date",
+            "dated_skus",
+            "undated_skus",
+            "undated_complaints",
+            "dated_through",
+        }
+        assert scope["filtered_by_date"] is True
+        assert scope["dated_skus"] == 1
+
+
+class TestWhenTheSheetWasUploaded:
+    """``last_imported_at`` on the performance payload.
+
+    Three columns on that page — Total Count, Total Quantity, Total Orders —
+    are a snapshot of the newest import rather than figures for the selected
+    range, and the page offers one date control for all six columns. The date
+    is what lets the note say how old that snapshot is.
+
+    **It is the upload time and nothing more.** A sheet exported in July and
+    uploaded in September carries a September timestamp, and no column anywhere
+    records the period the file's contents cover. The client words this as the
+    upload; the server's job is only to send the right timestamp.
+    """
+
+    def test_it_is_sent_once_a_sheet_has_been_imported(self, signed_in: TestClient) -> None:
+        aggregated(signed_in, ("DD-1", 3))
+
+        body = signed_in.get(f"{PERFORMANCE}?days=30").json()
+
+        assert body["last_imported_at"] is not None
+
+    def test_it_is_null_before_anything_is_imported(self, signed_in: TestClient) -> None:
+        body = signed_in.get(f"{PERFORMANCE}?days=30").json()
+
+        assert body["last_imported_at"] is None
+
+    def test_it_does_not_move_with_the_selected_window(self, signed_in: TestClient) -> None:
+        """A snapshot's age is a fact about the file, not about the range."""
+        aggregated(signed_in, ("DD-1", 3))
+
+        stamps = {
+            signed_in.get(f"{PERFORMANCE}?days={days}").json()["last_imported_at"]
+            for days in (1, 30, 365)
+        }
+
+        assert len(stamps) == 1

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { freshness, inr, n, pct, sharePct } from './format';
+import { complaintRate, day, freshness, inr, n, pct, sharePct } from './format';
 
 describe('n — Indian digit grouping', () => {
   it('groups in the lakh/crore pattern, not thousands', () => {
@@ -63,6 +63,71 @@ describe('sharePct', () => {
     /** An empty chart must render 0.00%, never NaN%. */
     expect(sharePct(5, 0)).toBe(0);
     expect(pct(sharePct(5, 0))).toBe('0.00%');
+  });
+});
+
+describe('complaintRate', () => {
+  it('is an ordinary percentage below the cap', () => {
+    expect(complaintRate(218, 52_300)).toBeCloseTo(0.4168, 4);
+    expect(complaintRate(1, 4)).toBe(25);
+  });
+
+  it('reports exactly 100 when every order drew a complaint', () => {
+    expect(complaintRate(40, 40)).toBe(100);
+  });
+
+  it('caps above the whole rather than reporting 312.50%', () => {
+    /**
+     * Not a correction of the data. One order can draw several complaints, and
+     * the date range moves the numerator while the denominator stays a
+     * snapshot — so the ratio is real. It is the *reported* figure that stops
+     * at 100, because a percentage past it reads as a bug rather than a number.
+     */
+    expect(complaintRate(25, 8)).toBe(100);
+    expect(complaintRate(1_000_000, 1)).toBe(100);
+    // The boundary: one complaint past the whole is already capped.
+    expect(complaintRate(41, 40)).toBe(100);
+  });
+
+  it('is null with nothing to divide by, never zero and never NaN', () => {
+    /** No rate is not a rate of zero, and the two are shown differently. */
+    expect(complaintRate(5, 0)).toBeNull();
+    expect(complaintRate(0, 0)).toBeNull();
+    // Nonsense that arithmetic would otherwise turn into a negative percentage.
+    expect(complaintRate(5, -1)).toBeNull();
+  });
+
+  it('formats to a rate a reader can act on', () => {
+    expect(pct(complaintRate(25, 8) as number)).toBe('100.00%');
+    expect(pct(complaintRate(218, 52_300) as number)).toBe('0.42%');
+  });
+});
+
+describe('day', () => {
+  it('reads a yyyy-mm-dd as a day a person would say', () => {
+    expect(day('2026-07-30')).toBe('30 July 2026');
+    expect(day('2026-01-01')).toBe('1 January 2026');
+  });
+
+  it('does not slip a day for readers west of Greenwich', () => {
+    /**
+     * `new Date('2026-07-30')` is parsed as UTC midnight and renders as the
+     * 29th anywhere behind it. The explicit T00:00:00 makes it local midnight,
+     * which is the same trap the trend labels already avoid.
+     */
+    expect(day('2026-07-30')).toContain('30 July');
+  });
+
+  it('returns null for nothing rather than a date for now', () => {
+    expect(day(null)).toBeNull();
+    expect(day(undefined)).toBeNull();
+    expect(day('')).toBeNull();
+  });
+
+  it('returns null rather than "Invalid Date" for junk', () => {
+    /** A caller can leave the sentence out; it cannot un-print nonsense. */
+    expect(day('not-a-date')).toBeNull();
+    expect(day('2026-13-45')).toBeNull();
   });
 });
 

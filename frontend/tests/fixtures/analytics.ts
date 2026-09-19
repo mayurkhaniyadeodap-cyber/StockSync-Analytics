@@ -245,6 +245,9 @@ export const PERFORMANCE: PerformancePage = {
   days: 30,
   sort: 'shopify_sales',
   descending: true,
+  // The upload time, which is what the period note names. Deliberately not the
+  // period the sheet covers — nothing records that.
+  last_imported_at: '2026-09-18T11:52:12Z',
 };
 
 export function routes(overrides: Record<string, Route> = {}) {

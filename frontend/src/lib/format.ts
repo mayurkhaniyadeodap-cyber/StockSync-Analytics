@@ -58,6 +58,53 @@ export function sharePct(part: number, whole: number): number {
 }
 
 /**
+ * Complaints as a percentage of orders, capped at 100, or `null` with nothing
+ * to divide by.
+ *
+ * **The one implementation.** Two screens show this figure — the dashboard's
+ * Complaint Rate card and the Rate column in Products Requiring Attention — and
+ * they each derived it themselves, which is how one of them would eventually
+ * cap and the other would not.
+ *
+ * The cap is a display decision, not a correction. The underlying ratio really
+ * can exceed 100%, for two honest reasons: one order can produce several
+ * complaints, and the date range moves the numerator while the denominator
+ * stays a snapshot of the newest import. Neither is a defect in the data, but
+ * "312.50%" reads as a broken number rather than a large one, so the reported
+ * figure stops at 100%.
+ *
+ * `null` rather than 0 when there are no orders: no rate is not a rate of zero,
+ * and the two callers say so differently — an em dash in a table cell, a
+ * sentence on a card. Guarding here also keeps the division from ever running
+ * against a zero denominator.
+ */
+export function complaintRate(complaints: number, orders: number): number | null {
+  if (orders <= 0) return null;
+  return Math.min(sharePct(complaints, orders), 100);
+}
+
+/**
+ * A `yyyy-mm-dd` from the server as a day a reader can say out loud.
+ *
+ * Parsed with an explicit `T00:00:00` so it is read as local midnight. Handing
+ * a bare `yyyy-mm-dd` to `new Date` parses it as UTC, which renders as the day
+ * before anywhere west of Greenwich — the same trap the trend labels avoid.
+ *
+ * Returns null for anything unparseable rather than "Invalid Date", so a caller
+ * can leave the sentence out instead of printing nonsense into it.
+ */
+export function day(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const parsed = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toLocaleDateString('en-IN', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+}
+
+/**
  * Relative freshness label: "Synced 12 minutes ago" (doc §1.4).
  *
  * Every data-bearing screen carries one, so the user never has to guess how

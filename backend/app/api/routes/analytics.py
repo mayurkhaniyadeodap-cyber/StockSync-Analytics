@@ -26,12 +26,15 @@ from typing import Annotated, cast
 
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy import func, select
+from sqlalchemy.orm import Session
 
 from app.api.deps import CurrentUser, DbDep, SettingsDep, enforce_rate_limit
 from app.core.errors import AppError
 from app.models import COMPLAINT_COLUMNS, InventoryItem, SkuDailyMetric
+from app.repositories import complaints as complaints_repository
 from app.repositories.analytics import SkuFact, SkuFactRepository
 from app.repositories.complaints import ComplaintScope
+from app.repositories.inventory import InventoryItemRepository
 from app.schemas.analytics import (
     SORT_PATTERN,
     STATUS_PATTERN,
@@ -123,7 +126,7 @@ def _kpis(db: DbDep, workspace_id: int, days: int, windowed_complaints: bool = T
     )
     return KpiPayload(
         **{k: v for k, v in figures.__dict__.items() if k != "complaint_scope"},
-        complaint_scope=_scope_payload(figures.complaint_scope),
+        complaint_scope=_scope_payload(db, workspace_id, figures.complaint_scope),
         days=days,
         stale=metrics_service.is_stale(db, workspace_id=workspace_id),
         syncing=metrics_service.is_syncing(db, workspace_id=workspace_id),
@@ -131,13 +134,20 @@ def _kpis(db: DbDep, workspace_id: int, days: int, windowed_complaints: bool = T
     )
 
 
-def _scope_payload(scope: ComplaintScope) -> ComplaintScopePayload:
-    """The scope, in one shape for every page that shows a complaint figure."""
+def _scope_payload(db: Session, workspace_id: int, scope: ComplaintScope) -> ComplaintScopePayload:
+    """The scope, in one shape for every page that shows a complaint figure.
+
+    Takes the session because ``dated_through`` is not derivable from the
+    scope: the counts describe the SKUs on this page, and how far the dated
+    record reaches is a fact about the workspace. Read here rather than at each
+    of the four call sites so the four responses cannot disagree about it.
+    """
     return ComplaintScopePayload(
         filtered_by_date=scope.filtered_by_date,
         dated_skus=scope.dated_skus,
         undated_skus=scope.undated_skus,
         undated_complaints=scope.undated_complaints,
+        dated_through=complaints_repository.dated_through(db, workspace_id),
     )
 
 
@@ -207,7 +217,7 @@ def skus(
     return SkuTablePage(
         rows=[SkuRowPayload(**row.__dict__) for row in rows],
         complaint_columns=COMPLAINT_PAYLOAD,
-        complaint_scope=_scope_payload(scope),
+        complaint_scope=_scope_payload(db, user.workspace_id, scope),
         total=total,
         limit=limit,
         offset=offset,
@@ -294,7 +304,7 @@ def insights(
         ],
         trend=_trend(db, workspace_id, days),
         complaint_columns=COMPLAINT_PAYLOAD,
-        complaint_scope=_scope_payload(insights_service.complaint_scope(facts)),
+        complaint_scope=_scope_payload(db, workspace_id, insights_service.complaint_scope(facts)),
         days=days,
         has_data=bool(facts),
         stale=metrics_service.is_stale(db, workspace_id=workspace_id),
@@ -446,13 +456,14 @@ def performance(
     return PerformancePage(
         rows=[PerformanceRowPayload(**row.__dict__) for row in rows],
         complaint_columns=COMPLAINT_PAYLOAD,
-        complaint_scope=_scope_payload(scope),
+        complaint_scope=_scope_payload(db, user.workspace_id, scope),
         total=total,
         limit=limit,
         offset=offset,
         days=query.range_days(),
         sort=query.sort,
         descending=query.descending,
+        last_imported_at=InventoryItemRepository(db).last_imported_at(user.workspace_id),
     )
 
 

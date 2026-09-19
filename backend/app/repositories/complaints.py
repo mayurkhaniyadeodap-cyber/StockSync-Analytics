@@ -232,6 +232,31 @@ def resolve(
     )
 
 
+def dated_through(db: Session, workspace_id: int) -> date | None:
+    """The newest day this workspace has a dated complaint for, or None.
+
+    **Read separately from the window on purpose.** It answers "how far does
+    the dated record reach", which is a fact about the workspace and stays the
+    same whichever period is selected and whichever basis the page asked for.
+    Deriving it from a window would give the wrong answer twice over: a window
+    that ends before the newest record would under-report it, and
+    :func:`whole_record` holds no rows at all and could not report it.
+
+    The point is to let a screen tell "no complaints in this period" apart from
+    "no complaint data covers this period". Those are the same figure on screen
+    and a very different thing to act on — the first is good news about the
+    products, the second means the export is overdue.
+
+    ``MAX`` on the leading edge of ``ix_sku_daily_complaints_date``, so this is
+    a seek to the last key for the workspace rather than a scan.
+    """
+    return db.scalar(
+        select(func.max(SkuDailyComplaint.complaint_date)).where(
+            SkuDailyComplaint.workspace_id == workspace_id
+        )
+    )
+
+
 def whole_record() -> ComplaintWindow:
     """A window that places no SKU, so every one keeps the sheet's own total.
 

@@ -391,6 +391,12 @@ export interface ComplaintScope {
   dated_skus: number;
   undated_skus: number;
   undated_complaints: number;
+  /**
+   * The newest day the workspace holds a dated complaint for, `yyyy-mm-dd`, or
+   * null when it holds none. Optional because it was added after the other
+   * four and an older payload will not carry it.
+   */
+  dated_through?: string | null;
 }
 
 export interface SkuRow {
@@ -612,4 +618,10 @@ export interface PerformancePage {
   days: number;
   sort: string;
   descending: boolean;
+  /**
+   * When the newest sheet row was uploaded, ISO-8601, or null before any
+   * import. **The upload time, not the period the sheet covers** — nothing
+   * records that, so no caller may word it as though it did.
+   */
+  last_imported_at?: string | null;
 }

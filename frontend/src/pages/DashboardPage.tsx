@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { ComplaintScopeNote } from '../components/ComplaintScopeNote';
+import { startOfTrailingDays } from './analytics/dateRange';
 import { Icon } from '../components/Icon';
 import { KpiCard } from '../components/KpiCard';
 import { ShopifyWidget } from '../components/ShopifyWidget';
@@ -37,7 +38,7 @@ import { useSharedRange } from '../hooks/useSharedRange';
 import { useShopifyStatus } from '../hooks/useShopifyStatus';
 import { useToast } from '../hooks/useToast';
 import { API_BASE, StockSyncApiError, api, ensureSession } from '../lib/api';
-import { freshness, n, pct, sharePct } from '../lib/format';
+import { complaintRate, freshness, n, pct } from '../lib/format';
 import { SkuTable } from './analytics/SkuTable';
 import { STATUS_LABEL } from './analytics/status';
 import { DEFAULT_DESCENDING, DEFAULT_SORT, TOP_SKUS } from './analytics/skuColumns';
@@ -355,8 +356,7 @@ export function DashboardPage() {
 
   const cards = useMemo((): KpiCardProps[] => {
     if (!kpis) return [];
-    const rate =
-      kpis.total_orders > 0 ? sharePct(kpis.total_complaints, kpis.total_orders) : null;
+    const rate = complaintRate(kpis.total_complaints, kpis.total_orders);
 
     return [
       {
@@ -624,7 +624,7 @@ export function DashboardPage() {
         {/* Renders only when some complaints cannot answer the date range —
             an aggregated sheet carries no Complaint Date column to filter on,
             and a table headed "most complained" over a range must say so. */}
-        <ComplaintScopeNote scope={table?.complaint_scope} />
+        <ComplaintScopeNote scope={table?.complaint_scope} since={startOfTrailingDays(range)} />
 
         {/* What the imported sheet sold, and what it is about to run out of.
             Both read off the insights payload the page already has, so neither

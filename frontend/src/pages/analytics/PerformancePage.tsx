@@ -18,11 +18,11 @@ import { Page } from '../../components/shell/Page';
 import { PageHeader } from '../../components/shell/PageHeader';
 import { useToast } from '../../hooks/useToast';
 import { API_BASE, StockSyncApiError, api, ensureSession } from '../../lib/api';
-import { n } from '../../lib/format';
+import { day, n } from '../../lib/format';
 import type { ComplaintColumn, PerformancePage as Page_, SkuStatus } from '../../types/api';
 import { SkuTable } from './SkuTable';
 import { DateRangeFilter } from './DateRangeFilter';
-import { DEFAULT_RANGE, rangeLabel, rangeParams } from './dateRange';
+import { DEFAULT_RANGE, rangeLabel, rangeParams, rangeStart } from './dateRange';
 import type { DateRange } from './dateRange';
 import { DEFAULT_DESCENDING, DEFAULT_SORT, TOP_SKUS } from './skuColumns';
 import { STATUS_LABEL } from './status';
@@ -86,6 +86,19 @@ export function PerformancePage() {
     for (const [key, value] of rangeParams(range)) params.set(key, value);
     params.set('sort', sort);
     params.set('descending', String(descending));
+    // Complaints as the sheet's whole record, not as a slice of the window.
+    //
+    // Three of this table's columns — Total Count, Total Quantity, Total
+    // Orders — are already a snapshot of the newest import, so a complaint
+    // figure that moved with the range made each row a statement about two
+    // different periods. Worse, `status` is computed from the complaint count:
+    // on the live workspace a SKU with 64 complaints was classified
+    // `excellent` and ranked out of Products Requiring Attention, because its
+    // dated records all fell outside the selected thirty days.
+    //
+    // Complaint Analytics deliberately does not send this — following the
+    // range is that page's entire purpose.
+    params.set('complaints', 'total');
     return params;
   }, [applied, descending, range, sort]);
 
@@ -126,6 +139,17 @@ export function PerformancePage() {
     () => Object.values(filters).filter((value) => value !== '').length,
     [filters],
   );
+
+  /**
+   * The day the newest sheet row was uploaded, or null before any import and
+   * while the first page is still loading.
+   *
+   * `day()` takes the date part only. The upload has a clock time and it is not
+   * worth showing: what the reader is judging is how many days old the snapshot
+   * beside them is, and "18 September 2026" answers that where "18 September
+   * 2026, 11:52" only adds precision the question does not have.
+   */
+  const uploaded = day(table?.last_imported_at?.slice(0, 10));
 
   /**
    * A plain navigation rather than a fetch: the browser handles the file, the
@@ -173,17 +197,26 @@ export function PerformancePage() {
           this column is a share of the sheet, so it adds up to 100%.
           Complaints are deliberately not listed either way — whether they move
           with the range depends on the file they were imported from, which is
-          what ComplaintScopeNote below says when it is worth saying. */}
+          what ComplaintScopeNote below says when it is worth saying.
+
+          The upload date is named because "your most recent import" gave a
+          reader no way to tell whether the snapshot was from this morning or
+          from July. It is worded as *uploaded* and nothing more: the file
+          itself carries no statement of the period it covers, so a sheet
+          exported in July and uploaded in September is a September upload of
+          July figures, and this note must not imply otherwise. */}
       <div className="trend-scope">
         <b>Shopify Sales</b> and <b>Shopify Sales %</b> cover {rangeLabel(range)}; the
         percentage is a SKU&rsquo;s share of everything your imported SKUs sold in it, so the
-        column adds up to 100%. <b>Total Quantity</b> and <b>Total Orders</b> come from your
-        most recent import and do not change with the range.
+        column adds up to 100%. <b>Total Count</b>, <b>Total Quantity</b> and{' '}
+        <b>Total Orders</b> are a snapshot of the sheet
+        {uploaded ? <> you uploaded on {uploaded}</> : ' from your most recent import'} and do
+        not change with the range.
       </div>
 
       {/* Only when some complaints cannot answer the range — an aggregated
           sheet has no date column to filter on. */}
-      <ComplaintScopeNote scope={table?.complaint_scope} />
+      <ComplaintScopeNote scope={table?.complaint_scope} since={rangeStart(range)} />
 
       <div className="panel">
         <div className="p-hd">
